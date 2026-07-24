@@ -1,0 +1,24 @@
+# ── Datos sensibles: nunca versionar información real de vetting ──
+*.xlsx
+*.xls
+!Formato_VETTING_plantilla.xlsx
+Vetting_*.csv
+!Vetting_Beneficiarios_plantilla.csv
+Respuestas_*.csv
+respaldos/
+*_RESPALDO_*
+*.pdf
+
+# ── Apps Script / clasp ──
+.clasp.json
+.clasprc.json
+node_modules/
+
+# ── Sistema operativo y editores ──
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
