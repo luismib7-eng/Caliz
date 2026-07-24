@@ -67,12 +67,12 @@ tailwind.config = {
       <div class="flex flex-wrap items-start justify-between gap-6">
         <div>
           <div class="flex items-center gap-3">
-            <p class="font-display tracking-[0.28em] text-unodc text-xs uppercase">UNODC · Gobierno del Estado de Jalisco</p>
+            <p id="mEyebrow" class="font-display tracking-[0.28em] text-unodc text-xs uppercase">UNODC · Gobierno del Estado de Jalisco</p>
             <button id="badgeOrigen" type="button" title="Estatus de conexión con la base master — pulse para reintentar"
                     class="h-2.5 w-2.5 rounded-full bg-slate-400" aria-label="Estatus de conexión"></button>
           </div>
-          <h1 class="font-display text-4xl md:text-5xl font-bold mt-1 leading-none">RASTROS</h1>
-          <p class="text-slate-300 text-sm mt-2 max-w-2xl leading-relaxed">
+          <h1 id="mTitulo" class="font-display text-4xl md:text-5xl font-bold mt-1 leading-none">RASTROS</h1>
+          <p id="mSubtitulo" class="text-slate-300 text-sm mt-2 max-w-2xl leading-relaxed">
             Panel ejecutivo del Enlace Coordinador · Coordinación General Estratégica de Seguridad
           </p>
         </div>
@@ -82,8 +82,8 @@ tailwind.config = {
             Generar reporte ejecutivo semanal
           </button>
           <p class="text-[11px] uppercase tracking-widest text-slate-400">Fase actual</p>
-          <p class="font-display text-lg font-bold">Convocatoria de vetting y diagnóstico inicial</p>
-          <p class="text-slate-300 text-xs">Julio – Agosto 2026 · México (Jalisco) · Guatemala · Perú</p>
+          <p id="mFase" class="font-display text-lg font-bold">Convocatoria de vetting y diagnóstico inicial</p>
+          <p id="mPeriodo" class="text-slate-300 text-xs">Julio – Agosto 2026 · México (Jalisco) · Guatemala · Perú</p>
         </div>
       </div>
     </div>
@@ -91,7 +91,7 @@ tailwind.config = {
     <div id="bannerLimite" class="bg-alerta text-white">
       <div class="max-w-7xl mx-auto px-6 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span class="font-display font-bold tracking-wide uppercase text-xs">Fecha límite</span>
-        <span>Envío de propuestas de vetting: <strong>29 de julio de 2026</strong></span>
+        <span>Envío de propuestas de vetting: <strong id="mLimite">29/07/2026</strong></span>
         <span id="cuenta" class="ml-auto font-display font-bold"></span>
       </div>
     </div>
@@ -252,16 +252,23 @@ tailwind.config = {
 
 <script>
 /* ═══════════════ CONFIGURACIÓN ═══════════════ */
-const LIMITE = new Date(2026, 6, 29);
-const META_DIAGNOSTICO = 25;          // funcionarios previstos en Jalisco
-const CUOTA_POR_DEPENDENCIA = 2;      // supuesto operativo, ajústelo si UNODC define otra cifra
+/* Valores de RESPALDO. En cuanto el servidor responde, los sustituye la
+   pestaña Configuracion_Dashboard. Solo se usan en la vista previa sin
+   conexión (GitHub Pages) o si la lectura falla. */
+let CONFIG = {
+  limite: new Date(2026, 6, 29),
+  metaDiagnostico: 25,
+  cuotaPorDependencia: 2,
+  diasCriticos: 3,
+  diasAtencion: 10
+};
 const HOJA_ID = '1sufZxmUgFnd5M1a00EhyoM0VRbU0z4f5hs3cGbrA73g';
 const FUENTES = [
   'https://docs.google.com/spreadsheets/d/' + HOJA_ID + '/export?format=csv&gid=0',
   'https://docs.google.com/spreadsheets/d/' + HOJA_ID + '/gviz/tq?tqx=out:csv&sheet=Vetting_Beneficiarios'
 ];
 
-const DEPENDENCIAS = [
+let DEPENDENCIAS = [
   'Coordinación General Estratégica de Seguridad (CGES)',
   'Secretaría de Seguridad del Estado de Jalisco',
   'Fiscalía del Estado de Jalisco',
@@ -270,9 +277,9 @@ const DEPENDENCIAS = [
   'Comisión Ejecutiva Estatal de Atención a Víctimas',
   'Comisión de Búsqueda de Personas'
 ];
-const ESTATUS = ['Pendiente', 'Enviado Embajada', 'Aprobado'];
+let ESTATUS = ['Pendiente', 'Enviado Embajada', 'Aprobado'];
 
-const CORTO = {
+let CORTO = {
   'Coordinación General Estratégica de Seguridad (CGES)': 'CGES',
   'Secretaría de Seguridad del Estado de Jalisco': 'Secretaría de Seguridad',
   'Fiscalía del Estado de Jalisco': 'Fiscalía del Estado',
@@ -301,29 +308,31 @@ let beneficiarios = [
 }));
 const RESPALDO_LOCAL = beneficiarios.slice();
 
-const METAS = [
+let METAS = [
   { t: 'Meta 1 · Programas diseñados', d: 'Uno por país beneficiario', real: 0, obj: 3, jal: '1 en Jalisco' },
   { t: 'Meta 2 · Funcionarios capacitados', d: 'Fuerzas del orden y fiscalías', real: 0, obj: 75, jal: '25 en Jalisco' },
   { t: 'Meta 3 · Investigaciones TIP / OSO', d: 'Casos vinculados a estafas en línea', real: 0, obj: 15, jal: '5 en Jalisco' },
   { t: 'Meta 4 · Redes de formadores', d: 'Redes ToT y 15 materiales', real: 0, obj: 3, jal: '1 en Jalisco' }
 ];
 
-const RUTA = [
-  ['Solicitud de vetting al personal de las unidades participantes', '29 de julio de 2026', 'activo'],
-  ['Revisión del formulario de diagnóstico por tomadores de decisiones', '29 de julio de 2026', 'activo'],
-  ['Confirmación de fecha y horario de la reunión presencial', '31 de julio de 2026', 'proximo'],
-  ['Reunión presencial con personal clave y mesas de trabajo', 'Semana del 24 de agosto de 2026', 'proximo'],
-  ['Aplicación en línea del formulario a todas las unidades', 'Septiembre de 2026', 'futuro']
+/* Ruta crítica y pendientes: respaldo local. La fuente real son las pestañas
+   Ruta_Critica y Pendientes_UNODC de la base master. */
+let RUTA = [
+  { id: 'H001', fecha: '29 de julio de 2026', actividad: 'Solicitud de vetting al personal de las unidades participantes', responsable: 'CGES', estatus: 'En Curso', notas: '', tono: 'activo' },
+  { id: 'H002', fecha: '29 de julio de 2026', actividad: 'Revisión del formulario de diagnóstico por tomadores de decisiones', responsable: 'CGES', estatus: 'En Curso', notas: '', tono: 'activo' },
+  { id: 'H003', fecha: '31 de julio de 2026', actividad: 'Confirmación de fecha y horario de la reunión presencial', responsable: 'CGES', estatus: 'Futuro', notas: '', tono: 'proximo' },
+  { id: 'H004', fecha: 'Semana del 24 de agosto de 2026', actividad: 'Reunión presencial con personal clave y mesas de trabajo', responsable: 'UNODC', estatus: 'Futuro', notas: '', tono: 'proximo' },
+  { id: 'H005', fecha: 'Septiembre de 2026', actividad: 'Aplicación en línea del formulario a todas las unidades', responsable: 'UNODC', estatus: 'Futuro', notas: '', tono: 'proximo' }
 ];
 
-const PENDIENTES_UNODC = [
-  ['Anexo 3', 'Confirmar si la Embajada lo requerirá, para anticiparlo en la planeación logística de los oficios. Pendiente de Victor Merchand (UNODC).', 'critica'],
-  ['Sede de las mesas de trabajo', 'UNODC cubre alquiler, alimentos y coffee break. Falta definir el lugar.', 'atencion'],
-  ['Proyección y pantalla', 'Por confirmar con la sede una vez definida.', 'atencion'],
-  ['Reporte institucional de la capacitación', 'Se gestiona internamente; UNODC apoya con los insumos que se requieran.', 'ok']
+let PENDIENTES_UNODC = [
+  { id: 'P001', titulo: 'Anexo 3', descripcion: 'Confirmar si la Embajada lo requerirá, para anticiparlo en la planeación logística de los oficios.', responsable: 'UNODC', estatus: 'Pendiente', nivel: 'critica', vencimiento: '' },
+  { id: 'P002', titulo: 'Sede de las mesas de trabajo', descripcion: 'UNODC cubre alquiler, alimentos y coffee break. Falta definir el lugar.', responsable: 'UNODC', estatus: 'En Gestión', nivel: 'atencion', vencimiento: '' },
+  { id: 'P003', titulo: 'Proyección y pantalla', descripcion: 'Por confirmar con la sede una vez definida.', responsable: 'CGES', estatus: 'Pendiente', nivel: 'atencion', vencimiento: '' },
+  { id: 'P004', titulo: 'Reporte institucional de la capacitación', descripcion: 'Se gestiona internamente; UNODC apoya con los insumos que se requieran.', responsable: 'CGES', estatus: 'En Gestión', nivel: 'ok', vencimiento: '' }
 ];
 
-let DIAG = { recibidas: 0, validadas: 0, meta: META_DIAGNOSTICO, porDependencia: [] };
+let DIAG = { recibidas: 0, validadas: 0, meta: CONFIG.metaDiagnostico, porDependencia: [] };
 let EVENTOS = [];
 let AGRUPADO = [];
 let ALERTAS = [];
@@ -333,7 +342,11 @@ let SELLO = '';
 const $ = s => document.querySelector(s);
 const esc = s => String(s === null || s === undefined ? '' : s)
   .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const diasRestantes = () => Math.ceil((LIMITE - new Date()) / 864e5);
+const diasRestantes = () => {
+  const hoy = new Date();
+  const cero = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  return Math.round((CONFIG.limite - cero) / 864e5);
+};
 const corto = d => CORTO[d] || d;
 
 function hayBackend() {
@@ -361,17 +374,18 @@ function agruparPorDependencia(lista) {
 
 function calcularAlertas() {
   const dias = diasRestantes();
+  const cuota = CONFIG.cuotaPorDependencia;
   const total = beneficiarios.length;
   const pend = beneficiarios.filter(b => b.estatus === 'Pendiente').length;
   const sinCorreo = beneficiarios.filter(b => !b.correo).length;
-  const bajoCuota = AGRUPADO.filter(g => g.total < CUOTA_POR_DEPENDENCIA);
+  const bajoCuota = AGRUPADO.filter(g => g.total < cuota);
   const a = [];
 
   a.push({
-    nivel: dias <= 3 ? 'critica' : (dias <= 10 ? 'atencion' : 'ok'),
+    nivel: dias <= CONFIG.diasCriticos ? 'critica' : (dias <= CONFIG.diasAtencion ? 'atencion' : 'ok'),
     titulo: 'Cierre de vetting',
     cifra: dias > 0 ? dias + (dias === 1 ? ' día' : ' días') : (dias === 0 ? 'Hoy' : 'Vencido'),
-    detalle: pend + ' de ' + total + ' propuestas siguen en estatus Pendiente. Límite: 29 de julio de 2026.'
+    detalle: pend + ' de ' + total + ' propuestas siguen en estatus Pendiente. Límite: ' + fechaLimiteTexto() + '.'
   });
 
   a.push({
@@ -379,8 +393,8 @@ function calcularAlertas() {
     titulo: 'Dependencias por debajo de cuota',
     cifra: bajoCuota.length + ' de ' + AGRUPADO.length,
     detalle: bajoCuota.length
-      ? 'Faltan propuestas en: ' + bajoCuota.map(g => corto(g.dependencia) + ' (' + g.total + '/' + CUOTA_POR_DEPENDENCIA + ')').join(' · ')
-      : 'Todas las dependencias alcanzan la cuota de ' + CUOTA_POR_DEPENDENCIA + ' propuestas.'
+      ? 'Faltan propuestas en: ' + bajoCuota.map(g => corto(g.dependencia) + ' (' + g.total + '/' + cuota + ')').join(' · ')
+      : 'Todas las dependencias alcanzan la cuota de ' + cuota + ' propuestas.'
   });
 
   a.push({
@@ -392,14 +406,17 @@ function calcularAlertas() {
       : 'Todos los registros tienen correo capturado.'
   });
 
-  const criticoUnodc = PENDIENTES_UNODC.filter(p => p[2] === 'critica');
+  const criticoUnodc = PENDIENTES_UNODC.filter(p => p.nivel === 'critica');
   a.push({
-    nivel: criticoUnodc.length ? 'critica' : 'ok',
+    nivel: criticoUnodc.length ? 'critica' : (PENDIENTES_UNODC.length ? 'atencion' : 'ok'),
     titulo: 'Pendientes con UNODC',
-    cifra: criticoUnodc.length,
+    cifra: criticoUnodc.length || PENDIENTES_UNODC.length,
     detalle: criticoUnodc.length
-      ? criticoUnodc.map(p => p[0] + ': ' + p[1].split('.')[0] + '.').join(' ')
-      : 'Sin pendientes críticos con UNODC.'
+      ? criticoUnodc.map(p => p.titulo + (p.responsable ? ' (' + p.responsable + ')' : '') +
+          ': ' + String(p.descripcion).split('.')[0] + '.').join(' ')
+      : (PENDIENTES_UNODC.length
+          ? PENDIENTES_UNODC.length + ' pendientes abiertos, ninguno crítico.'
+          : 'Sin pendientes abiertos.')
   });
 
   const porValidar = DIAG.recibidas - DIAG.validadas;
@@ -430,11 +447,19 @@ function recalcularAgregados() {
 }
 
 /* ═══════════════ RENDER ═══════════════ */
-(function cuentaRegresiva() {
-  const d = diasRestantes(), el = $('#cuenta');
-  el.textContent = d > 0 ? d + (d === 1 ? ' día restante' : ' días restantes')
+function fechaLimiteTexto() {
+  return CONFIG.limite.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function pintarEncabezado() {
+  const d = diasRestantes();
+  $('#cuenta').textContent = d > 0 ? d + (d === 1 ? ' día restante' : ' días restantes')
     : (d === 0 ? 'Vence hoy' : 'Plazo vencido hace ' + Math.abs(d) + ' días');
-})();
+  $('#mLimite').textContent = fechaLimiteTexto();
+  const b = $('#bannerLimite');
+  b.className = 'text-white ' + (d <= CONFIG.diasCriticos ? 'bg-alerta'
+    : (d <= CONFIG.diasAtencion ? 'bg-ambar' : 'bg-verde'));
+}
 
 const TONO = {
   critica: { borde: 'border-alerta', punto: 'bg-alerta', texto: 'text-alerta' },
@@ -476,15 +501,19 @@ function pintarMetas() {
   }).join('');
 }
 
-$('#ruta').innerHTML = RUTA.map((r, i) => {
-  const col = { activo: 'bg-alerta', proximo: 'bg-ambar', futuro: 'bg-slate-300' }[r[2]];
-  return `<li class="flex gap-4">
-    <span class="mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${col}"></span>
-    <div>
-      <p class="font-display text-xs uppercase tracking-widest text-slate-400">Actividad ${i + 1} · ${esc(r[1])}</p>
-      <p class="text-slate-800">${esc(r[0])}</p>
-    </div></li>`;
-}).join('');
+function pintarRuta() {
+  const col = { activo: 'bg-unodc', proximo: 'bg-slate-300', hecho: 'bg-verde' };
+  $('#ruta').innerHTML = RUTA.map(r => `<li class="flex gap-4">
+    <span class="mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${col[r.tono] || 'bg-slate-300'}"></span>
+    <div class="min-w-0">
+      <p class="font-display text-xs uppercase tracking-widest text-slate-400">
+        ${esc(r.fecha)}${r.responsable ? ' · ' + esc(r.responsable) : ''}
+        <span class="ml-1 normal-case tracking-normal ${r.tono === 'hecho' ? 'text-verde' : (r.tono === 'activo' ? 'text-unodc' : 'text-slate-400')}">${esc(r.estatus)}</span>
+      </p>
+      <p class="text-slate-800 ${r.tono === 'hecho' ? 'line-through text-slate-400' : ''}">${esc(r.actividad)}</p>
+      ${r.notas ? `<p class="text-xs text-slate-500 mt-0.5">${esc(r.notas)}</p>` : ''}
+    </div></li>`).join('');
+}
 
 function pintarPorDependencia() {
   $('#porDependencia').innerHTML = AGRUPADO.map(g => {
@@ -493,7 +522,7 @@ function pintarPorDependencia() {
     const t = TONO[nivel];
     return `<div class="bg-white rounded-lg shadow-sm border-l-4 ${t.borde} p-5">
       <p class="font-display text-base font-bold text-marino leading-tight">${esc(corto(g.dependencia))}</p>
-      <p class="text-[11px] text-slate-400 mt-0.5">${g.total} propuesta${g.total === 1 ? '' : 's'} · cuota ${CUOTA_POR_DEPENDENCIA}</p>
+      <p class="text-[11px] text-slate-400 mt-0.5">${g.total} propuesta${g.total === 1 ? '' : 's'} · cuota ${CONFIG.cuotaPorDependencia}</p>
       <div class="grid grid-cols-3 gap-2 mt-4 text-center">
         <div class="bg-humo rounded py-2">
           <p class="font-display text-2xl font-bold text-alerta">${g.pendiente}</p>
@@ -618,12 +647,27 @@ function pintarDiagnostico() {
   }).join('');
 }
 
-$('#pendientesUnodc').innerHTML = PENDIENTES_UNODC.map(p => {
-  const t = TONO[p[2]];
-  return `<li class="border-l-4 ${t.borde} pl-4 py-1">
-    <p class="font-medium text-marino">${esc(p[0])}</p>
-    <p class="text-sm text-slate-600 mt-0.5">${esc(p[1])}</p></li>`;
-}).join('');
+function pintarPendientes() {
+  const cont = $('#pendientesUnodc');
+  if (!PENDIENTES_UNODC.length) {
+    cont.innerHTML = '<li class="text-sm text-slate-500 py-4">Sin pendientes abiertos. ' +
+      'Los marcados como Resuelto en la base master dejan de aparecer aquí.</li>';
+    return;
+  }
+  cont.innerHTML = PENDIENTES_UNODC.map(p => {
+    const t = TONO[p.nivel] || TONO.atencion;
+    const venc = p.vencimiento
+      ? `<span class="ml-2 ${typeof p.diasVencimiento === 'number' && p.diasVencimiento < 0 ? 'text-alerta font-medium' : 'text-slate-500'}">vence ${esc(p.vencimiento)}${typeof p.diasVencimiento === 'number' && p.diasVencimiento < 0 ? ' (vencido)' : ''}</span>`
+      : '';
+    return `<li class="border-l-4 ${t.borde} pl-4 py-1">
+      <div class="flex flex-wrap items-baseline gap-x-2">
+        <p class="font-medium text-marino">${esc(p.titulo)}</p>
+        <span class="text-[11px] uppercase tracking-wider ${t.texto}">${esc(p.estatus)}</span>
+        ${p.responsable ? `<span class="text-[11px] text-slate-500">· ${esc(p.responsable)}</span>` : ''}
+      </div>
+      <p class="text-sm text-slate-600 mt-0.5">${esc(p.descripcion)}${venc}</p></li>`;
+  }).join('');
+}
 
 /* ═══════════════ REPORTE EJECUTIVO ═══════════════ */
 function armarReporte() {
@@ -651,19 +695,24 @@ function armarReporte() {
   $('#repVetting').innerHTML = tabla(
     ['Dependencia', 'Total', 'Pendiente', 'Enviado a Embajada', 'Aprobado', 'Sin correo'],
     AGRUPADO.map(g => [esc(corto(g.dependencia)), g.total, g.pendiente, g.enviado, g.aprobado, g.sinCorreo])
-  ) + '<p style="font-size:9px;margin-top:5px;">Cuota de referencia: ' + CUOTA_POR_DEPENDENCIA +
-      ' propuestas por dependencia. Fecha límite de envío: 29 de julio de 2026 (' + diasRestantes() + ' días).</p>';
+  ) + '<p style="font-size:9px;margin-top:5px;">Cuota de referencia: ' + CONFIG.cuotaPorDependencia +
+      ' propuestas por dependencia. Fecha límite de envío: ' + fechaLimiteTexto() +
+      ' (' + diasRestantes() + ' días).</p>';
 
   $('#repAlertas').innerHTML =
     '<ul style="margin:0;padding-left:16px;font-size:10px;line-height:1.5;">' +
     ALERTAS.filter(a => a.nivel !== 'ok').map(a =>
       '<li><strong>' + esc(a.titulo) + ' (' + esc(a.cifra) + '):</strong> ' + esc(a.detalle) + '</li>').join('') +
-    PENDIENTES_UNODC.filter(p => p[2] !== 'ok').map(p =>
-      '<li><strong>' + esc(p[0]) + ':</strong> ' + esc(p[1]) + '</li>').join('') +
+    PENDIENTES_UNODC.map(p =>
+      '<li><strong>' + esc(p.titulo) + '</strong>' +
+      (p.responsable ? ' [' + esc(p.responsable) + ']' : '') +
+      ' — ' + esc(p.estatus) + ': ' + esc(p.descripcion) +
+      (p.vencimiento ? ' (vence ' + esc(p.vencimiento) + ')' : '') + '</li>').join('') +
     '</ul>';
 
-  const hitos = RUTA.filter(r => r[2] !== 'futuro');
-  $('#repHitos').innerHTML = tabla(['Fecha', 'Hito'], hitos.map(r => [esc(r[1]), esc(r[0])])) +
+  const hitos = RUTA.filter(r => r.estatus !== 'Completado');
+  $('#repHitos').innerHTML = tabla(['Fecha', 'Hito', 'Responsable', 'Estatus'],
+    hitos.map(r => [esc(r.fecha), esc(r.actividad), esc(r.responsable), esc(r.estatus)])) +
     (EVENTOS.length
       ? '<p style="font-size:10px;margin-top:6px;"><strong>Eventos registrados:</strong> ' +
         EVENTOS.map(e => esc(e.tipo) + ' — ' + esc(e.fecha)).join(' · ') + '</p>'
@@ -689,8 +738,9 @@ function marcarOrigen(estado, detalle) {
 
 function repintarTodo() {
   recalcularAgregados();
-  pintarAlertas(); pintarMetas(); pintarPorDependencia();
-  pintarVetting(); pintarEventos(); pintarDiagnostico();
+  pintarEncabezado(); pintarAlertas(); pintarMetas(); pintarRuta();
+  pintarPorDependencia(); pintarVetting(); pintarEventos();
+  pintarDiagnostico(); pintarPendientes();
 }
 
 function parsearCSV(texto) {
@@ -730,25 +780,84 @@ function mapearFilas(filas) {
 
 function aplicarPayload(p) {
   if (!p || !p.ok) return respaldarLocal();
+
+  /* --- Capa dinámica: parámetros, textos y catálogos --------------------- */
+  if (p.configuracion) {
+    const c = p.configuracion;
+    if (c.fechaLimiteISO) {
+      const [a, m, d] = c.fechaLimiteISO.split('-').map(Number);
+      if (a && m && d) CONFIG.limite = new Date(a, m - 1, d);
+    }
+    if (typeof c.cuotaPorDependencia === 'number') CONFIG.cuotaPorDependencia = c.cuotaPorDependencia;
+    if (typeof c.metaDiagnostico === 'number') CONFIG.metaDiagnostico = c.metaDiagnostico;
+    if (typeof c.diasCriticos === 'number') CONFIG.diasCriticos = c.diasCriticos;
+    if (typeof c.diasAtencion === 'number') CONFIG.diasAtencion = c.diasAtencion;
+  }
+  if (p.metadatos) aplicarMetadatos(p.metadatos);
+  if (p.abreviaturas && Object.keys(p.abreviaturas).length) CORTO = p.abreviaturas;
+  if (p.catalogos) {
+    if (Array.isArray(p.catalogos.Dependencia) && p.catalogos.Dependencia.length) {
+      DEPENDENCIAS = p.catalogos.Dependencia.filter(d => d !== 'Otra');
+      llenarSelect($('#filtroDep'), DEPENDENCIAS, 'Todas las dependencias');
+    }
+    if (Array.isArray(p.catalogos.Estatus_Vetting) && p.catalogos.Estatus_Vetting.length) {
+      ESTATUS = p.catalogos.Estatus_Vetting;
+      llenarSelect($('#filtroEst'), ESTATUS, 'Todos los estatus');
+    }
+  }
+  if (Array.isArray(p.pendientesUnodc)) PENDIENTES_UNODC = p.pendientesUnodc;
+  if (Array.isArray(p.rutaCritica) && p.rutaCritica.length) RUTA = p.rutaCritica;
+
+  /* --- Datos operativos -------------------------------------------------- */
   if (Array.isArray(p.beneficiarios)) beneficiarios = p.beneficiarios;
   if (Array.isArray(p.eventos)) EVENTOS = p.eventos;
-  if (p.diagnostico) DIAG = Object.assign({ meta: META_DIAGNOSTICO, porDependencia: [] }, p.diagnostico);
+  if (p.diagnostico) DIAG = Object.assign({ meta: CONFIG.metaDiagnostico, porDependencia: [] }, p.diagnostico);
   if (Array.isArray(p.metas)) {
-    p.metas.forEach((m, i) => { if (METAS[i] && typeof m.real === 'number') METAS[i].real = m.real; });
+    p.metas.forEach((m, i) => {
+      if (!METAS[i]) return;
+      if (typeof m.real === 'number') METAS[i].real = m.real;
+      if (m.nombre) METAS[i].t = m.nombre.replace(/^Meta (\d+): /, 'Meta $1 · ');
+      if (m.descripcion) METAS[i].d = m.descripcion;
+      if (typeof m.objetivo === 'number' && m.objetivo > 0) METAS[i].obj = m.objetivo;
+      if (m.objetivoJalisco !== undefined && m.objetivoJalisco !== '') {
+        METAS[i].jal = m.objetivoJalisco + ' en Jalisco';
+      }
+      if (m.fuente) METAS[i].fuente = m.fuente;
+    });
   }
   SELLO = p.actualizado || '';
+
   recalcularAgregados();
   // El servidor manda los agregados ya procesados; si vienen, mandan ellos.
   if (Array.isArray(p.porDependencia) && p.porDependencia.length) AGRUPADO = p.porDependencia;
   if (Array.isArray(p.alertas) && p.alertas.length) ALERTAS = p.alertas;
-  pintarAlertas(); pintarMetas(); pintarPorDependencia();
-  pintarVetting(); pintarEventos(); pintarDiagnostico();
+
+  pintarEncabezado(); pintarAlertas(); pintarMetas(); pintarRuta();
+  pintarPorDependencia(); pintarVetting(); pintarEventos();
+  pintarDiagnostico(); pintarPendientes();
   marcarOrigen('script', beneficiarios.length + ' registros');
+}
+
+/** Inyecta los textos del encabezado desde Metadatos_Proyecto. */
+function aplicarMetadatos(m) {
+  const poner = (sel, valor) => { if (valor) $(sel).textContent = valor; };
+  poner('#mTitulo', m.Titulo_Proyecto);
+  poner('#mSubtitulo', m.Subtitulo);
+  poner('#mFase', m.Fase_Actual);
+  if (m.Institucion_Ejecutora || m.Institucion_Contraparte) {
+    $('#mEyebrow').textContent = [m.Institucion_Ejecutora, m.Institucion_Contraparte]
+      .filter(Boolean).join(' · ');
+  }
+  if (m.Periodo || m.Paises) {
+    $('#mPeriodo').textContent = [m.Periodo, m.Paises].filter(Boolean).join(' · ');
+  }
+  if (m.Titulo_Proyecto) document.title = m.Titulo_Proyecto + ' · Panel ejecutivo';
 }
 
 function respaldarLocal() {
   beneficiarios = RESPALDO_LOCAL.slice();
   EVENTOS = []; SELLO = '';
+  DIAG = { recibidas: 0, validadas: 0, meta: CONFIG.metaDiagnostico, porDependencia: [] };
   repintarTodo();
   marcarOrigen('local');
 }

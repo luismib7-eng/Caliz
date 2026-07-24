@@ -56,6 +56,12 @@ LISTAS = {
     "Tipo_Evento": ["Mesa de Trabajo", "Capacitación"],
     "Estatus_Catering": ["No requerido", "Solicitado a UNODC", "Confirmado", "Cubierto"],
     "Estatus_Validacion": ["Recibida", "En revisión", "Validada", "Descartada"],
+    "Responsable": ["UNODC", "CGES", "Secretaría de Seguridad", "Fiscalía del Estado",
+                    "Fiscalía Especializada", "Policía Cibernética", "Embajada de EE. UU.", "Otra"],
+    "Estatus_Pendiente": ["Pendiente", "En Gestión", "Resuelto"],
+    "Nivel_Alerta": ["Crítica", "Atención", "OK"],
+    "Estatus_Hito": ["Futuro", "En Curso", "Completado"],
+    "Tipo_Parametro": ["Número", "Texto", "Fecha", "Booleano"],
     "Dependencia": [
         "Coordinación General Estratégica de Seguridad (CGES)",
         "Secretaría de Seguridad del Estado de Jalisco",
@@ -70,22 +76,39 @@ LISTAS = {
     ],
 }
 
+ABREV = {
+    "Coordinación General Estratégica de Seguridad (CGES)": "CGES",
+    "Secretaría de Seguridad del Estado de Jalisco": "Secretaría de Seguridad",
+    "Fiscalía del Estado de Jalisco": "Fiscalía del Estado",
+    "Fiscalía Especializada en Trata de Personas": "Fiscalía Especializada",
+    "Ministerio Público": "Ministerio Público",
+    "Policía Cibernética": "Policía Cibernética",
+    "Perito o personal experto técnico": "Peritos",
+    "Comisión Ejecutiva Estatal de Atención a Víctimas": "CEEAV",
+    "Comisión de Búsqueda de Personas": "Comisión de Búsqueda",
+    "Otra": "Otra",
+}
+
 lst = wb.create_sheet("Listas_Catalogos")
-encabezar(lst, list(LISTAS.keys()), [26, 22, 20, 22, 20, 46])
+_headers_lst = list(LISTAS.keys()) + ["Dependencia_Abrev"]
+encabezar(lst, _headers_lst, [30] * len(_headers_lst))
 for col, (k, vals) in enumerate(LISTAS.items(), start=1):
     for r, v in enumerate(vals, start=2):
         c = lst.cell(row=r, column=col, value=v)
         c.font = cuerpo
         c.border = borde
+col_abrev = len(LISTAS) + 1
+for r, d in enumerate(LISTAS["Dependencia"], start=2):
+    c = lst.cell(row=r, column=col_abrev, value=ABREV.get(d, d))
+    c.font = cuerpo
+    c.border = borde
+
 lst.cell(row=14, column=1, value="Catálogos que alimentan las listas desplegables. "
          "Si agrega valores, amplíe también el rango de validación en la pestaña correspondiente.").font = nota
 
 rango = lambda col, n: f"Listas_Catalogos!${col}$2:${col}${n + 1}"
-RG = {
-    "Tipo_Rol": rango("A", 2), "Estatus_Vetting": rango("B", 3),
-    "Tipo_Evento": rango("C", 2), "Estatus_Catering": rango("D", 4),
-    "Estatus_Validacion": rango("E", 4), "Dependencia": rango("F", 10),
-}
+_cols = {k: chr(ord("A") + i) for i, k in enumerate(LISTAS.keys())}
+RG = {k: rango(_cols[k], len(v)) for k, v in LISTAS.items()}
 
 
 def validar(ws, col, rango_ref, n=FILAS, fila_ini=2):
@@ -403,6 +426,106 @@ mapa.cell(row=2, column=1,
                 "el control interno vive en Vetting_Beneficiarios.").font = nota
 
 
+# ══════════ PESTAÑAS DINÁMICAS ══════════
+def hoja_simple(nombre, headers, anchos, filas, validaciones=None, n_val=60):
+    ws = wb.create_sheet(nombre)
+    encabezar(ws, headers, anchos)
+    for i, fila in enumerate(filas, start=2):
+        for j, v in enumerate(fila, start=1):
+            if v == "" or v is None:
+                continue
+            c = ws.cell(row=i, column=j, value=v)
+            c.font = azul_dato
+            c.alignment = izq
+            c.border = borde
+        ws.row_dimensions[i].height = 34
+    for r in range(2, n_val + 2):
+        for j in range(1, len(headers) + 1):
+            cc = ws.cell(row=r, column=j)
+            if cc.font.color is None or cc.font.color.rgb != "FF0000FF":
+                cc.font = cuerpo
+            cc.alignment = izq
+            cc.border = borde
+    for col, rango_ref in (validaciones or []):
+        validar(ws, col, rango_ref, n=n_val)
+    return ws
+
+hoja_simple(
+    "Pendientes_UNODC",
+    ["ID_Pendiente", "Titulo", "Descripcion", "Responsable", "Estatus", "Nivel_Alerta", "Fecha_Vencimiento"],
+    [16, 32, 62, 24, 18, 16, 20],
+    [
+        ["P001", "Anexo 3",
+         "Confirmar si la Embajada lo requerirá, para anticiparlo en la planeación logística de los oficios.",
+         "UNODC", "Pendiente", "Crítica", ""],
+        ["P002", "Sede de las mesas de trabajo",
+         "UNODC cubre alquiler, alimentos y coffee break. Falta definir el lugar.",
+         "UNODC", "En Gestión", "Atención", ""],
+        ["P003", "Proyección y pantalla",
+         "Por confirmar con la sede una vez definida.",
+         "CGES", "Pendiente", "Atención", ""],
+        ["P004", "Reporte institucional de la capacitación",
+         "Se gestiona internamente; UNODC apoya con los insumos que se requieran.",
+         "CGES", "En Gestión", "OK", ""],
+    ],
+    [("D", RG["Responsable"]), ("E", RG["Estatus_Pendiente"]), ("F", RG["Nivel_Alerta"])],
+)
+
+hoja_simple(
+    "Ruta_Critica",
+    ["ID_Hito", "Fecha", "Actividad", "Responsable", "Estatus", "Notas"],
+    [14, 26, 58, 24, 18, 44],
+    [
+        ["H001", "29 de julio de 2026", "Solicitud de vetting al personal de las unidades participantes",
+         "CGES", "En Curso", "Fecha límite acordada con UNODC el 22/07/2026."],
+        ["H002", "29 de julio de 2026", "Revisión del formulario de diagnóstico por tomadores de decisiones",
+         "CGES", "En Curso", "Solo tomadores de decisiones, para acotar las observaciones."],
+        ["H003", "31 de julio de 2026", "Confirmación de fecha y horario de la reunión presencial",
+         "CGES", "Futuro", ""],
+        ["H004", "Semana del 24 de agosto de 2026", "Reunión presencial con personal clave y mesas de trabajo",
+         "UNODC", "Futuro", "Sede externa, alimentos y catering a cargo de UNODC."],
+        ["H005", "Septiembre de 2026", "Aplicación en línea del formulario a todas las unidades",
+         "UNODC", "Futuro", ""],
+    ],
+    [("D", RG["Responsable"]), ("E", RG["Estatus_Hito"])],
+)
+
+cfgws = hoja_simple(
+    "Configuracion_Dashboard",
+    ["Parametro", "Valor", "Descripcion", "Tipo"],
+    [34, 18, 62, 16],
+    [
+        ["CUOTA_POR_DEPENDENCIA", 2, "Propuestas mínimas esperadas por dependencia", "Número"],
+        ["META_DIAGNOSTICO", 25, "Cuestionarios de diagnóstico previstos en Jalisco", "Número"],
+        ["FECHA_LIMITE_VETTING", LIMITE, "Fecha límite de envío de propuestas de vetting", "Fecha"],
+        ["DIAS_CRITICOS", 3, "Días restantes para considerar la alerta como crítica", "Número"],
+        ["DIAS_ATENCION", 10, "Días restantes para considerar la alerta como de atención", "Número"],
+    ],
+    [("D", RG["Tipo_Parametro"])],
+    n_val=20,
+)
+cfgws["B4"].number_format = "DD/MM/YYYY"
+for r in range(2, 7):
+    cfgws.cell(row=r, column=2).fill = fill_amarillo
+
+hoja_simple(
+    "Metadatos_Proyecto",
+    ["Campo", "Valor"],
+    [32, 96],
+    [
+        ["Titulo_Proyecto", "RASTROS"],
+        ["Subtitulo", "Panel ejecutivo del Enlace Coordinador · Coordinación General Estratégica de Seguridad"],
+        ["Fase_Actual", "Convocatoria de vetting y diagnóstico inicial"],
+        ["Periodo", "Julio – Agosto 2026"],
+        ["Paises", "México (Jalisco) · Guatemala · Perú"],
+        ["Donante", "Departamento de Estado de EE. UU."],
+        ["Institucion_Ejecutora", "UNODC"],
+        ["Institucion_Contraparte", "Gobierno del Estado de Jalisco"],
+    ],
+    None,
+    n_val=20,
+)
+
 # ══════════ 6. LEEME ══════════
 leo = wb.create_sheet("LEEME_Importacion")
 leo.column_dimensions["A"].width = 118
@@ -434,6 +557,10 @@ LINEAS = [
     ("Mesas_de_Trabajo_y_Capacitaciones — logística y acuerdos de cada evento.", ""),
     ("Listas_Catalogos — alimenta las listas desplegables. No la borre.", ""),
     ("Mapeo_Formato_VETTING_Oficial — espejo de las 31 columnas del formato de la Embajada.", ""),
+    ("Pendientes_UNODC — pendientes abiertos; los marcados Resuelto salen del panel.", ""),
+    ("Ruta_Critica — hitos del proyecto, en el orden en que aparecen aquí.", ""),
+    ("Configuracion_Dashboard — cuota, metas y umbrales de alerta del panel.", ""),
+    ("Metadatos_Proyecto — títulos y textos del encabezado del panel.", ""),
     ("", ""),
     ("FUENTES", "s"),
     ("Metas y objetivos: One Pager RASTROS (UNODC).", ""),
@@ -452,7 +579,7 @@ for i, (txt, tipo) in enumerate(LINEAS, start=1):
         c.font = cuerpo
     c.alignment = izq
 
-wb.move_sheet("LEEME_Importacion", offset=-6)
+wb.move_sheet("LEEME_Importacion", offset=-10)
 import sys
 wb.save(sys.argv[1] if len(sys.argv) > 1 else "/mnt/user-data/outputs/RASTROS_UNODC_Master_DB.xlsx")
 print("Pestañas:", wb.sheetnames)

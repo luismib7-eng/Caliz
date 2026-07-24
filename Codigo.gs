@@ -90,6 +90,93 @@ const HOJAS = {
   }
 };
 
+/* ---- PESTAÑAS DINÁMICAS (agregadas en el rediseño de julio 2026) ------ */
+const HOJAS_DIN = {
+  PENDIENTES: {
+    nombre: 'Pendientes_UNODC',
+    encabezados: ['ID_Pendiente', 'Titulo', 'Descripcion', 'Responsable',
+                  'Estatus', 'Nivel_Alerta', 'Fecha_Vencimiento'],
+    anchos: [120, 230, 460, 170, 140, 130, 160]
+  },
+  RUTA: {
+    nombre: 'Ruta_Critica',
+    encabezados: ['ID_Hito', 'Fecha', 'Actividad', 'Responsable', 'Estatus', 'Notas'],
+    anchos: [100, 180, 420, 170, 140, 320]
+  },
+  CONFIG: {
+    nombre: 'Configuracion_Dashboard',
+    encabezados: ['Parametro', 'Valor', 'Descripcion', 'Tipo'],
+    anchos: [250, 140, 460, 120]
+  },
+  METADATOS: {
+    nombre: 'Metadatos_Proyecto',
+    encabezados: ['Campo', 'Valor'],
+    anchos: [240, 620]
+  }
+};
+
+/** Semillas: el contenido que hasta ahora vivía dentro del código. */
+const SEMILLA_PENDIENTES = [
+  ['P001', 'Anexo 3',
+   'Confirmar si la Embajada lo requerirá, para anticiparlo en la planeación logística de los oficios.',
+   'UNODC', 'Pendiente', 'Crítica', ''],
+  ['P002', 'Sede de las mesas de trabajo',
+   'UNODC cubre alquiler, alimentos y coffee break. Falta definir el lugar.',
+   'UNODC', 'En Gestión', 'Atención', ''],
+  ['P003', 'Proyección y pantalla',
+   'Por confirmar con la sede una vez definida.',
+   'CGES', 'Pendiente', 'Atención', ''],
+  ['P004', 'Reporte institucional de la capacitación',
+   'Se gestiona internamente; UNODC apoya con los insumos que se requieran.',
+   'CGES', 'En Gestión', 'OK', '']
+];
+
+const SEMILLA_RUTA = [
+  ['H001', '29 de julio de 2026', 'Solicitud de vetting al personal de las unidades participantes',
+   'CGES', 'En Curso', 'Fecha límite acordada con UNODC el 22/07/2026.'],
+  ['H002', '29 de julio de 2026', 'Revisión del formulario de diagnóstico por tomadores de decisiones',
+   'CGES', 'En Curso', 'Solo tomadores de decisiones, para acotar las observaciones.'],
+  ['H003', '31 de julio de 2026', 'Confirmación de fecha y horario de la reunión presencial',
+   'CGES', 'Futuro', ''],
+  ['H004', 'Semana del 24 de agosto de 2026', 'Reunión presencial con personal clave y mesas de trabajo',
+   'UNODC', 'Futuro', 'Sede externa, alimentos y catering a cargo de UNODC.'],
+  ['H005', 'Septiembre de 2026', 'Aplicación en línea del formulario a todas las unidades',
+   'UNODC', 'Futuro', '']
+];
+
+const SEMILLA_CONFIG = [
+  ['CUOTA_POR_DEPENDENCIA', 2, 'Propuestas mínimas esperadas por dependencia', 'Número'],
+  ['META_DIAGNOSTICO', 25, 'Cuestionarios de diagnóstico previstos en Jalisco', 'Número'],
+  ['FECHA_LIMITE_VETTING', new Date(2026, 6, 29), 'Fecha límite de envío de propuestas de vetting', 'Fecha'],
+  ['DIAS_CRITICOS', 3, 'Días restantes para considerar la alerta como crítica', 'Número'],
+  ['DIAS_ATENCION', 10, 'Días restantes para considerar la alerta como de atención', 'Número']
+];
+
+const SEMILLA_METADATOS = [
+  ['Titulo_Proyecto', 'RASTROS'],
+  ['Subtitulo', 'Panel ejecutivo del Enlace Coordinador · Coordinación General Estratégica de Seguridad'],
+  ['Fase_Actual', 'Convocatoria de vetting y diagnóstico inicial'],
+  ['Periodo', 'Julio – Agosto 2026'],
+  ['Paises', 'México (Jalisco) · Guatemala · Perú'],
+  ['Donante', 'Departamento de Estado de EE. UU.'],
+  ['Institucion_Ejecutora', 'UNODC'],
+  ['Institucion_Contraparte', 'Gobierno del Estado de Jalisco']
+];
+
+/** Abreviaturas para las tarjetas y el reporte impreso. */
+const ABREVIATURAS_SEMILLA = {
+  'Coordinación General Estratégica de Seguridad (CGES)': 'CGES',
+  'Secretaría de Seguridad del Estado de Jalisco': 'Secretaría de Seguridad',
+  'Fiscalía del Estado de Jalisco': 'Fiscalía del Estado',
+  'Fiscalía Especializada en Trata de Personas': 'Fiscalía Especializada',
+  'Ministerio Público': 'Ministerio Público',
+  'Policía Cibernética': 'Policía Cibernética',
+  'Perito o personal experto técnico': 'Peritos',
+  'Comisión Ejecutiva Estatal de Atención a Víctimas': 'CEEAV',
+  'Comisión de Búsqueda de Personas': 'Comisión de Búsqueda',
+  'Otra': 'Otra'
+};
+
 /**
  * PESTAÑA 2 — Respuestas_Formulario_Diagnostico
  * 67 preguntas del cuestionario "Formulario RASTROS_final_Jalisco",
@@ -225,6 +312,14 @@ const LISTAS = {
   Tipo_Evento: ['Mesa de Trabajo', 'Capacitación'],
   Estatus_Catering: ['No requerido', 'Solicitado a UNODC', 'Confirmado', 'Cubierto'],
   Estatus_Validacion: ['Recibida', 'En revisión', 'Validada', 'Descartada'],
+  Responsable: [
+    'UNODC', 'CGES', 'Secretaría de Seguridad', 'Fiscalía del Estado',
+    'Fiscalía Especializada', 'Policía Cibernética', 'Embajada de EE. UU.', 'Otra'
+  ],
+  Estatus_Pendiente: ['Pendiente', 'En Gestión', 'Resuelto'],
+  Nivel_Alerta: ['Crítica', 'Atención', 'OK'],
+  Estatus_Hito: ['Futuro', 'En Curso', 'Completado'],
+  Tipo_Parametro: ['Número', 'Texto', 'Fecha', 'Booleano'],
   Dependencia: [
     'Coordinación General Estratégica de Seguridad (CGES)',
     'Secretaría de Seguridad del Estado de Jalisco',
@@ -272,6 +367,9 @@ function setupMasterDB() {
     construirListas_(ss);
     construirMapeoEmbajada_(ss);
   }
+
+  // Capa dinámica: pendientes, ruta crítica, configuración y metadatos.
+  crearPestanasDinamicasSilencioso_(ss);
 
   ordenarPestanas_(ss);
   eliminarHojaVacia_(ss);
@@ -690,6 +788,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('▸ RASTROS')
     .addItem('Estructurar base master (primera vez)', 'setupMasterDB')
+    .addItem('Crear pestañas dinámicas', 'crearPestanasDinamicas')
     .addSeparator()
     .addItem('Respaldar libro', 'respaldarLibro')
     .addItem('Reporte de estatus de vetting', 'reporteVetting')
@@ -768,7 +867,16 @@ function abrirLibro_() {
  */
 function obtenerDatosTablero() {
   try {
+    limpiarCacheDinamica_();
     const ss = abrirLibro_();
+
+    // Capa dinámica: todo lo configurable se lee de la hoja antes de calcular.
+    const cfg = leerConfiguracion();
+    const metadatos = leerMetadatos();
+    const pendientes = leerPendientesUNODC();
+    const rutaCritica = leerRutaCritica();
+    const catalogos = leerCatalogos();
+    const abreviaturas = leerAbreviaturas();
 
     /* -- Vetting ------------------------------------------------------- */
     const beneficiarios = [];
@@ -825,20 +933,27 @@ function obtenerDatosTablero() {
     }
 
     /* -- Metas ---------------------------------------------------------- */
+    const definiciones = leerDefinicionMetas_(ss);
     const reales = leerRealesDeKPIs_(ss);
-    const metas = [
-      { id: 'M1', real: reales[0] },
-      { id: 'M2', real: reales[1] !== null ? reales[1] : capacitados },
-      { id: 'M3', real: reales[2] },
-      { id: 'M4', real: reales[3] }
-    ].map(function (m) { return { id: m.id, real: Number(m.real) || 0 }; });
+    const metas = definiciones.map(function (d, i) {
+      const real = (i === 1 && reales[1] === null) ? capacitados : reales[i];
+      return {
+        id: d.id,
+        nombre: d.nombre,
+        descripcion: d.descripcion,
+        objetivo: d.objetivo,
+        objetivoJalisco: d.objetivoJalisco,
+        fuente: d.fuente,
+        real: Number(real) || 0
+      };
+    });
 
     const diagPorDep = diagnosticoPorDependencia_(shD);
     const agrupado = agruparPorDependencia_(beneficiarios);
     const diagnostico = {
       recibidas: recibidas,
       validadas: validadas,
-      meta: CFG.META_CUESTIONARIOS,
+      meta: cfg.META_DIAGNOSTICO,
       porDependencia: diagPorDep
     };
 
@@ -846,13 +961,32 @@ function obtenerDatosTablero() {
       ok: true,
       usuario: Session.getActiveUser().getEmail() || '',
       actualizado: Utilities.formatDate(new Date(), CFG.ZONA_HORARIA, "dd/MM/yyyy HH:mm"),
+
+      // Datos operativos
       beneficiarios: beneficiarios,
       eventos: eventos,
       metas: metas,
       diagnostico: diagnostico,
       porDependencia: agrupado,
-      diasRestantes: diasParaLimite_(),
-      alertas: construirAlertas_(beneficiarios, agrupado, diagnostico, eventos)
+
+      // Capa dinámica
+      metadatos: metadatos,
+      configuracion: {
+        cuotaPorDependencia: cfg.CUOTA_POR_DEPENDENCIA,
+        metaDiagnostico: cfg.META_DIAGNOSTICO,
+        fechaLimite: Utilities.formatDate(cfg.FECHA_LIMITE_VETTING, CFG.ZONA_HORARIA, 'dd/MM/yyyy'),
+        fechaLimiteISO: Utilities.formatDate(cfg.FECHA_LIMITE_VETTING, CFG.ZONA_HORARIA, 'yyyy-MM-dd'),
+        diasCriticos: cfg.DIAS_CRITICOS,
+        diasAtencion: cfg.DIAS_ATENCION
+      },
+      pendientesUnodc: pendientes,
+      rutaCritica: rutaCritica,
+      catalogos: catalogos,
+      abreviaturas: abreviaturas,
+
+      diasRestantes: diasParaLimite_(cfg),
+      alertas: construirAlertas_(beneficiarios, agrupado, diagnostico, eventos,
+                                 pendientes, cfg, abreviaturas)
     };
 
   } catch (e) {
@@ -1001,10 +1135,11 @@ function agregarBeneficiario(d) {
  * backend disponible.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-function diasParaLimite_() {
+function diasParaLimite_(cfg) {
+  const limite = (cfg && cfg.FECHA_LIMITE_VETTING) || CFG.FECHA_LIMITE_VETTING;
   const hoy = new Date();
   const cero = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
-  return Math.round((CFG.FECHA_LIMITE_VETTING - cero) / 86400000);
+  return Math.round((limite - cero) / 86400000);
 }
 
 /** Acumula el vetting por dependencia, incluyendo las que aún no reportan. */
@@ -1022,7 +1157,8 @@ function agruparPorDependencia_(beneficiarios) {
 
   // Las dependencias del catálogo aparecen aunque tengan cero propuestas:
   // una entidad sin registros es justamente la que hay que perseguir.
-  LISTAS.Dependencia.forEach(function (d) { if (d !== 'Otra') asegurar(d); });
+  const catalogo = (leerCatalogos().Dependencia || LISTAS.Dependencia);
+  catalogo.forEach(function (d) { if (d !== 'Otra') asegurar(d); });
 
   beneficiarios.forEach(function (b) {
     const g = asegurar(b.dependencia || 'Sin dependencia');
@@ -1055,20 +1191,25 @@ function diagnosticoPorDependencia_(shD) {
 }
 
 /** Construye las tarjetas de cuellos de botella del Módulo 1. */
-function construirAlertas_(beneficiarios, agrupado, diagnostico, eventos) {
-  const dias = diasParaLimite_();
+function construirAlertas_(beneficiarios, agrupado, diagnostico, eventos, pendientes, cfg, abrev) {
+  cfg = cfg || leerConfiguracion();
+  abrev = abrev || {};
+  const corto = function (d) { return abrev[d] || d; };
+  const cuota = cfg.CUOTA_POR_DEPENDENCIA;
+  const dias = diasParaLimite_(cfg);
   const total = beneficiarios.length;
   const pend = beneficiarios.filter(function (b) { return b.estatus === 'Pendiente'; }).length;
   const sinCorreo = beneficiarios.filter(function (b) { return !b.correo; }).length;
-  const bajoCuota = agrupado.filter(function (g) { return g.total < CFG.CUOTA_POR_DEPENDENCIA; });
+  const bajoCuota = agrupado.filter(function (g) { return g.total < cuota; });
   const porValidar = Math.max(diagnostico.recibidas - diagnostico.validadas, 0);
   const a = [];
 
   a.push({
-    nivel: dias <= 3 ? 'critica' : (dias <= 10 ? 'atencion' : 'ok'),
+    nivel: dias <= cfg.DIAS_CRITICOS ? 'critica' : (dias <= cfg.DIAS_ATENCION ? 'atencion' : 'ok'),
     titulo: 'Cierre de vetting',
     cifra: dias > 0 ? dias + (dias === 1 ? ' día' : ' días') : (dias === 0 ? 'Hoy' : 'Vencido'),
-    detalle: pend + ' de ' + total + ' propuestas siguen en estatus Pendiente. Límite: 29 de julio de 2026.'
+    detalle: pend + ' de ' + total + ' propuestas siguen en estatus Pendiente. Límite: ' +
+      Utilities.formatDate(cfg.FECHA_LIMITE_VETTING, CFG.ZONA_HORARIA, 'dd/MM/yyyy') + '.'
   });
 
   a.push({
@@ -1077,9 +1218,9 @@ function construirAlertas_(beneficiarios, agrupado, diagnostico, eventos) {
     cifra: bajoCuota.length + ' de ' + agrupado.length,
     detalle: bajoCuota.length
       ? 'Faltan propuestas en: ' + bajoCuota.map(function (g) {
-          return g.dependencia + ' (' + g.total + '/' + CFG.CUOTA_POR_DEPENDENCIA + ')';
+          return corto(g.dependencia) + ' (' + g.total + '/' + cuota + ')';
         }).join(' · ')
-      : 'Todas las dependencias alcanzan la cuota de ' + CFG.CUOTA_POR_DEPENDENCIA + ' propuestas.'
+      : 'Todas las dependencias alcanzan la cuota de ' + cuota + ' propuestas.'
   });
 
   a.push({
@@ -1091,11 +1232,21 @@ function construirAlertas_(beneficiarios, agrupado, diagnostico, eventos) {
       : 'Todos los registros tienen correo capturado.'
   });
 
+  // Se arma con lo que diga la pestaña Pendientes_UNODC, no con texto fijo.
+  pendientes = pendientes || [];
+  const criticos = pendientes.filter(function (p) { return p.nivel === 'critica'; });
   a.push({
-    nivel: 'critica',
+    nivel: criticos.length ? 'critica' : (pendientes.length ? 'atencion' : 'ok'),
     titulo: 'Pendientes con UNODC',
-    cifra: 1,
-    detalle: 'Anexo 3: confirmar si la Embajada lo requerirá, para anticiparlo en la planeación logística de los oficios.'
+    cifra: criticos.length || pendientes.length,
+    detalle: criticos.length
+      ? criticos.map(function (p) {
+          return p.titulo + (p.responsable ? ' (' + p.responsable + ')' : '') + ': ' +
+                 p.descripcion.split('.')[0] + '.';
+        }).join(' ')
+      : (pendientes.length
+          ? pendientes.length + ' pendientes abiertos, ninguno crítico.'
+          : 'Sin pendientes abiertos.')
   });
 
   a.push({
@@ -1117,4 +1268,399 @@ function construirAlertas_(beneficiarios, agrupado, diagnostico, eventos) {
   });
 
   return a;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * CAPA DINÁMICA — TODO LO CONFIGURABLE VIVE EN LA HOJA, NO EN EL CÓDIGO
+ * ─────────────────────────────────────────────────────────────────────────
+ * Cuatro pestañas nuevas sustituyen a las constantes que antes estaban
+ * escritas aquí dentro: pendientes con UNODC, ruta crítica, parámetros de
+ * alerta y metadatos del proyecto. El coordinador cambia una celda y el
+ * panel lo refleja al recargar.
+ *
+ * INSTALACIÓN EN UNA BASE YA ESTRUCTURADA:
+ *   Ejecute crearPestanasDinamicas() una sola vez, o use el menú
+ *   ▸ RASTROS ▸ Crear pestañas dinámicas. Es aditivo: no toca ni una celda
+ *   de las pestañas existentes.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/** Caché por ejecución: evita releer las mismas pestañas varias veces. */
+var _CACHE_DIN = {};
+
+function limpiarCacheDinamica_() { _CACHE_DIN = {}; }
+
+/** Lee un bloque de datos acotado al contenido real de la hoja. */
+function leerBloque_(nombreHoja, columnas, filaInicio) {
+  const ini = filaInicio || 2;
+  try {
+    const sh = abrirLibro_().getSheetByName(nombreHoja);
+    if (!sh) { Logger.log('Pestaña ausente: ' + nombreHoja); return []; }
+    const ultima = sh.getLastRow();
+    if (ultima < ini) return [];
+    return sh.getRange(ini, 1, ultima - ini + 1, columnas).getValues();
+  } catch (e) {
+    Logger.log('Error al leer ' + nombreHoja + ': ' + e.message);
+    return [];
+  }
+}
+
+/* ───────────────────────── CONFIGURACIÓN ──────────────────────────────── */
+
+/**
+ * Parámetros operativos del panel.
+ * @return {Object} {CUOTA_POR_DEPENDENCIA, META_DIAGNOSTICO, FECHA_LIMITE_VETTING,
+ *                   DIAS_CRITICOS, DIAS_ATENCION}
+ * Si la pestaña falta o un valor es inválido, cae al valor de respaldo del código.
+ */
+function leerConfiguracion() {
+  if (_CACHE_DIN.config) return _CACHE_DIN.config;
+
+  const cfg = {
+    CUOTA_POR_DEPENDENCIA: CFG.CUOTA_POR_DEPENDENCIA,
+    META_DIAGNOSTICO: CFG.META_CUESTIONARIOS,
+    FECHA_LIMITE_VETTING: CFG.FECHA_LIMITE_VETTING,
+    DIAS_CRITICOS: 3,
+    DIAS_ATENCION: 10
+  };
+
+  leerBloque_(HOJAS_DIN.CONFIG.nombre, 4).forEach(function (f) {
+    const clave = String(f[0]).trim();
+    if (!clave || !(clave in cfg)) return;
+    const tipo = String(f[3]).trim();
+    const bruto = f[1];
+
+    if (tipo === 'Número') {
+      const n = Number(bruto);
+      if (!isNaN(n) && bruto !== '') cfg[clave] = n;
+      else Logger.log('Parámetro ' + clave + ': valor no numérico, se conserva el respaldo.');
+    } else if (tipo === 'Fecha') {
+      if (bruto instanceof Date && !isNaN(bruto.getTime())) cfg[clave] = bruto;
+      else Logger.log('Parámetro ' + clave + ': fecha inválida, se conserva el respaldo.');
+    } else if (tipo === 'Booleano') {
+      cfg[clave] = (bruto === true || String(bruto).toLowerCase() === 'sí' ||
+                    String(bruto).toLowerCase() === 'si' || String(bruto).toLowerCase() === 'true');
+    } else {
+      if (String(bruto).trim() !== '') cfg[clave] = String(bruto).trim();
+    }
+  });
+
+  _CACHE_DIN.config = cfg;
+  return cfg;
+}
+
+/* ───────────────────────── METADATOS ──────────────────────────────────── */
+
+/**
+ * Textos del encabezado y contexto del proyecto.
+ * @return {Object} pares Campo → Valor, con respaldo desde SEMILLA_METADATOS.
+ */
+function leerMetadatos() {
+  if (_CACHE_DIN.metadatos) return _CACHE_DIN.metadatos;
+
+  const m = {};
+  SEMILLA_METADATOS.forEach(function (f) { m[f[0]] = f[1]; });
+
+  leerBloque_(HOJAS_DIN.METADATOS.nombre, 2).forEach(function (f) {
+    const campo = String(f[0]).trim();
+    const valor = String(f[1]).trim();
+    if (campo && valor) m[campo] = valor;
+  });
+
+  _CACHE_DIN.metadatos = m;
+  return m;
+}
+
+/* ───────────────────────── PENDIENTES CON UNODC ───────────────────────── */
+
+/**
+ * Pendientes activos. Filtra los resueltos: el panel muestra lo que estorba hoy.
+ * @return {Array<Object>} {id, titulo, descripcion, responsable, estatus,
+ *                          nivel, vencimiento, diasVencimiento}
+ */
+function leerPendientesUNODC() {
+  if (_CACHE_DIN.pendientes) return _CACHE_DIN.pendientes;
+
+  const nivel = { 'Crítica': 'critica', 'Atención': 'atencion', 'OK': 'ok' };
+  const hoy = new Date();
+  const cero = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const filas = leerBloque_(HOJAS_DIN.PENDIENTES.nombre, 7);
+  const lista = [];
+
+  filas.forEach(function (f) {
+    const titulo = String(f[1]).trim();
+    if (!titulo) return;
+    const estatus = String(f[4]).trim() || 'Pendiente';
+    if (estatus === 'Resuelto') return;          // resuelto = fuera del radar
+
+    const venc = (f[6] instanceof Date && !isNaN(f[6].getTime())) ? f[6] : null;
+    lista.push({
+      id: String(f[0]).trim(),
+      titulo: titulo,
+      descripcion: String(f[2]).trim(),
+      responsable: String(f[3]).trim(),
+      estatus: estatus,
+      nivel: nivel[String(f[5]).trim()] || 'atencion',
+      vencimiento: venc ? Utilities.formatDate(venc, CFG.ZONA_HORARIA, 'dd/MM/yyyy') : '',
+      diasVencimiento: venc ? Math.round((venc - cero) / 86400000) : null
+    });
+  });
+
+  // Si la pestaña no existe todavía, el panel no se queda mudo.
+  const salida = lista.length ? lista : SEMILLA_PENDIENTES
+    .filter(function (f) { return f[4] !== 'Resuelto'; })
+    .map(function (f) {
+      return {
+        id: f[0], titulo: f[1], descripcion: f[2], responsable: f[3], estatus: f[4],
+        nivel: nivel[f[5]] || 'atencion', vencimiento: '', diasVencimiento: null
+      };
+    });
+
+  _CACHE_DIN.pendientes = salida;
+  return salida;
+}
+
+/* ───────────────────────── RUTA CRÍTICA ───────────────────────────────── */
+
+/**
+ * Hitos del proyecto, en el orden en que aparecen en la hoja.
+ * Se respeta ese orden a propósito: la columna Fecha admite rangos en texto
+ * ("Semana del 24 de agosto"), que ninguna función de ordenamiento entiende.
+ * Para reordenar, mueva las filas en la hoja.
+ * @return {Array<Object>} {id, fecha, actividad, responsable, estatus, notas, tono}
+ */
+function leerRutaCritica() {
+  if (_CACHE_DIN.ruta) return _CACHE_DIN.ruta;
+
+  const tono = { 'En Curso': 'activo', 'Futuro': 'proximo', 'Completado': 'hecho' };
+  const filas = leerBloque_(HOJAS_DIN.RUTA.nombre, 6);
+  const lista = [];
+
+  filas.forEach(function (f) {
+    const act = String(f[2]).trim();
+    if (!act) return;
+    const est = String(f[4]).trim() || 'Futuro';
+    lista.push({
+      id: String(f[0]).trim(),
+      fecha: (f[1] instanceof Date)
+        ? Utilities.formatDate(f[1], CFG.ZONA_HORARIA, 'dd/MM/yyyy')
+        : String(f[1]).trim(),
+      actividad: act,
+      responsable: String(f[3]).trim(),
+      estatus: est,
+      notas: String(f[5]).trim(),
+      tono: tono[est] || 'proximo'
+    });
+  });
+
+  const salida = lista.length ? lista : SEMILLA_RUTA.map(function (f) {
+    return {
+      id: f[0], fecha: f[1], actividad: f[2], responsable: f[3],
+      estatus: f[4], notas: f[5], tono: tono[f[4]] || 'proximo'
+    };
+  });
+
+  _CACHE_DIN.ruta = salida;
+  return salida;
+}
+
+/* ───────────────────────── CATÁLOGOS Y ABREVIATURAS ───────────────────── */
+
+/**
+ * Los seis catálogos de Listas_Catalogos, leídos por encabezado y no por
+ * posición, para que agregar una columna no rompa nada.
+ * @return {Object} nombre del catálogo → array de valores
+ */
+function leerCatalogos() {
+  if (_CACHE_DIN.catalogos) return _CACHE_DIN.catalogos;
+
+  const cat = {};
+  Object.keys(LISTAS).forEach(function (k) { cat[k] = LISTAS[k].slice(); });
+
+  try {
+    const sh = abrirLibro_().getSheetByName('Listas_Catalogos');
+    if (sh && sh.getLastRow() > 1) {
+      const datos = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+      const enc = datos[0].map(function (h) { return String(h).trim(); });
+      enc.forEach(function (nombre, c) {
+        if (!nombre || nombre === 'Dependencia_Abrev') return;
+        const vals = [];
+        for (let r = 1; r < datos.length; r++) {
+          const v = String(datos[r][c]).trim();
+          if (v && v.indexOf('Catálogos que alimentan') !== 0) vals.push(v);
+        }
+        if (vals.length) cat[nombre] = vals;
+      });
+    }
+  } catch (e) {
+    Logger.log('Error al leer catálogos: ' + e.message);
+  }
+
+  _CACHE_DIN.catalogos = cat;
+  return cat;
+}
+
+/**
+ * Abreviaturas de dependencia, tomadas de la columna Dependencia_Abrev de
+ * Listas_Catalogos, emparejada fila a fila con la columna Dependencia.
+ * @return {Object} nombre completo → abreviatura
+ */
+function leerAbreviaturas() {
+  if (_CACHE_DIN.abreviaturas) return _CACHE_DIN.abreviaturas;
+
+  const abrev = {};
+  Object.keys(ABREVIATURAS_SEMILLA).forEach(function (k) { abrev[k] = ABREVIATURAS_SEMILLA[k]; });
+
+  try {
+    const sh = abrirLibro_().getSheetByName('Listas_Catalogos');
+    if (sh && sh.getLastRow() > 1) {
+      const datos = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+      const enc = datos[0].map(function (h) { return String(h).trim(); });
+      const cDep = enc.indexOf('Dependencia');
+      const cAbr = enc.indexOf('Dependencia_Abrev');
+      if (cDep !== -1 && cAbr !== -1) {
+        for (let r = 1; r < datos.length; r++) {
+          const d = String(datos[r][cDep]).trim();
+          const a = String(datos[r][cAbr]).trim();
+          if (d && a) abrev[d] = a;
+        }
+      }
+    }
+  } catch (e) {
+    Logger.log('Error al leer abreviaturas: ' + e.message);
+  }
+
+  _CACHE_DIN.abreviaturas = abrev;
+  return abrev;
+}
+
+/* ───────────────────────── DEFINICIÓN DE METAS ────────────────────────── */
+
+/**
+ * Nombre, descripción, objetivos y fuente de verificación de las 4 metas,
+ * leídos de Control_Metas_y_KPIs. No se agregaron columnas nuevas: la hoja
+ * ya tenía Descripción y Fuente_de_Verificación, solo no se estaban usando.
+ * @return {Array<Object>} {id, nombre, descripcion, objetivo, objetivoJalisco, real, fuente}
+ */
+function leerDefinicionMetas_(ss) {
+  const respaldo = METAS.map(function (m) {
+    return { id: m[0], nombre: m[1], descripcion: m[2], objetivo: m[3],
+             objetivoJalisco: m[4], real: 0, fuente: m[5] };
+  });
+  try {
+    const sh = ss.getSheetByName(HOJAS.KPIS.nombre);
+    if (!sh || sh.getLastRow() < 5) return respaldo;
+    const d = sh.getRange(2, 1, 4, 9).getValues();
+    return d.map(function (f, i) {
+      return {
+        id: String(f[0]).trim() || respaldo[i].id,
+        nombre: String(f[1]).trim() || respaldo[i].nombre,
+        descripcion: String(f[2]).trim() || respaldo[i].descripcion,
+        objetivo: Number(f[3]) || respaldo[i].objetivo,
+        objetivoJalisco: f[4] === '' ? respaldo[i].objetivoJalisco : f[4],
+        real: Number(f[5]) || 0,
+        fuente: String(f[8]).trim() || respaldo[i].fuente
+      };
+    });
+  } catch (e) {
+    Logger.log('Error al leer definición de metas: ' + e.message);
+    return respaldo;
+  }
+}
+
+/* ═════════════ CREACIÓN DE LAS PESTAÑAS DINÁMICAS ═══════════════════════ */
+
+/**
+ * Crea las cuatro pestañas nuevas y la columna de abreviaturas.
+ * ADITIVO: si una pestaña ya existe con datos, no la toca.
+ */
+function crearPestanasDinamicas() {
+  const ss = abrirLibro_();
+  const creadas = [], respetadas = [];
+
+  function construir(def, semilla, validaciones) {
+    const existente = ss.getSheetByName(def.nombre);
+    if (existente && existente.getLastRow() > 1) { respetadas.push(def.nombre); return; }
+    const sh = existente || ss.insertSheet(def.nombre);
+    escribirEncabezado_(sh, def.encabezados, def.anchos);
+    if (semilla && semilla.length) {
+      sh.getRange(2, 1, semilla.length, def.encabezados.length).setValues(semilla);
+    }
+    (validaciones || []).forEach(function (v) { validar_(sh, v[0], 60, v[1]); });
+    sh.getRange(2, 1, 60, def.encabezados.length).setVerticalAlignment('top').setWrap(true);
+    creadas.push(def.nombre);
+  }
+
+  construir(HOJAS_DIN.PENDIENTES, SEMILLA_PENDIENTES,
+    [[4, LISTAS.Responsable], [5, LISTAS.Estatus_Pendiente], [6, LISTAS.Nivel_Alerta]]);
+  construir(HOJAS_DIN.RUTA, SEMILLA_RUTA,
+    [[4, LISTAS.Responsable], [5, LISTAS.Estatus_Hito]]);
+  construir(HOJAS_DIN.CONFIG, SEMILLA_CONFIG, [[4, LISTAS.Tipo_Parametro]]);
+  construir(HOJAS_DIN.METADATOS, SEMILLA_METADATOS, []);
+
+  const fechaCfg = ss.getSheetByName(HOJAS_DIN.CONFIG.nombre);
+  if (fechaCfg) fechaCfg.getRange('B4').setNumberFormat('dd/mm/yyyy');
+  const pend = ss.getSheetByName(HOJAS_DIN.PENDIENTES.nombre);
+  if (pend) pend.getRange(2, 7, 60, 1).setNumberFormat('dd/mm/yyyy');
+
+  const abrev = agregarColumnaAbreviaturas_(ss);
+  limpiarCacheDinamica_();
+
+  SpreadsheetApp.getUi().alert(
+    'Pestañas dinámicas',
+    (creadas.length ? 'Creadas: ' + creadas.join(', ') + '\n\n' : '') +
+    (respetadas.length ? 'Ya existían con datos, no se tocaron: ' + respetadas.join(', ') + '\n\n' : '') +
+    (abrev ? 'Columna Dependencia_Abrev agregada a Listas_Catalogos.' :
+             'La columna Dependencia_Abrev ya existía.'),
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+/** Misma construcción, sin diálogo: se invoca desde setupMasterDB(). */
+function crearPestanasDinamicasSilencioso_(ss) {
+  function construir(def, semilla, validaciones) {
+    const existente = ss.getSheetByName(def.nombre);
+    if (existente && existente.getLastRow() > 1) return;
+    const sh = existente || ss.insertSheet(def.nombre);
+    escribirEncabezado_(sh, def.encabezados, def.anchos);
+    if (semilla && semilla.length) {
+      sh.getRange(2, 1, semilla.length, def.encabezados.length).setValues(semilla);
+    }
+    (validaciones || []).forEach(function (v) { validar_(sh, v[0], 60, v[1]); });
+    sh.getRange(2, 1, 60, def.encabezados.length).setVerticalAlignment('top').setWrap(true);
+  }
+  construir(HOJAS_DIN.PENDIENTES, SEMILLA_PENDIENTES,
+    [[4, LISTAS.Responsable], [5, LISTAS.Estatus_Pendiente], [6, LISTAS.Nivel_Alerta]]);
+  construir(HOJAS_DIN.RUTA, SEMILLA_RUTA,
+    [[4, LISTAS.Responsable], [5, LISTAS.Estatus_Hito]]);
+  construir(HOJAS_DIN.CONFIG, SEMILLA_CONFIG, [[4, LISTAS.Tipo_Parametro]]);
+  construir(HOJAS_DIN.METADATOS, SEMILLA_METADATOS, []);
+  const c = ss.getSheetByName(HOJAS_DIN.CONFIG.nombre);
+  if (c) c.getRange('B4').setNumberFormat('dd/mm/yyyy');
+  agregarColumnaAbreviaturas_(ss);
+  limpiarCacheDinamica_();
+}
+
+/** Agrega la columna Dependencia_Abrev a Listas_Catalogos si aún no está. */
+function agregarColumnaAbreviaturas_(ss) {
+  const sh = ss.getSheetByName('Listas_Catalogos');
+  if (!sh) return false;
+  const enc = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  if (enc.indexOf('Dependencia_Abrev') !== -1) return false;
+
+  const cDep = enc.indexOf('Dependencia');
+  if (cDep === -1) return false;
+
+  const col = sh.getLastColumn() + 1;
+  sh.getRange(1, col).setValue('Dependencia_Abrev')
+    .setBackground(CFG.COLORES.azulMarino).setFontColor('#FFFFFF').setFontWeight('bold');
+  sh.setColumnWidth(col, 220);
+
+  const deps = sh.getRange(2, cDep + 1, Math.max(sh.getLastRow() - 1, 1), 1).getValues();
+  const salida = deps.map(function (f) {
+    const d = String(f[0]).trim();
+    return [d ? (ABREVIATURAS_SEMILLA[d] || d) : ''];
+  });
+  if (salida.length) sh.getRange(2, col, salida.length, 1).setValues(salida);
+  return true;
 }

@@ -19,6 +19,24 @@ meta, se escribe en la base master y se recarga el panel.
 
 El panel tiene tres pistas de acción:
 
+### Todo lo configurable vive en la hoja
+
+Ningún dato que cambie durante el proyecto está escrito en el código. Cuatro pestañas lo controlan:
+
+| Pestaña | Controla |
+|---|---|
+| `Pendientes_UNODC` | Los pendientes que muestra el panel. Marcar `Resuelto` lo retira. |
+| `Ruta_Critica` | Los hitos, su estatus y su orden. |
+| `Configuracion_Dashboard` | Cuota por dependencia, meta del diagnóstico, fecha límite y umbrales de alerta. |
+| `Metadatos_Proyecto` | Títulos, fase, periodo, países e instituciones del encabezado. |
+
+Más `Listas_Catalogos`, que ahora incluye la columna `Dependencia_Abrev` con las abreviaturas que
+usan las tarjetas y el reporte. Las descripciones y objetivos de las metas se leen de
+`Control_Metas_y_KPIs`; no se agregaron columnas porque la hoja ya las tenía sin usar.
+
+Si una pestaña falta o un valor es inválido, el código registra el problema en el log de Apps
+Script y usa el respaldo interno. El panel nunca se queda en blanco.
+
 | Módulo | Para qué |
 |---|---|
 | **1 · Resumen ejecutivo y alertas** | Qué está trabado hoy: cuellos de botella, semáforo de las 4 metas y ruta crítica. |
@@ -91,6 +109,7 @@ Todos los archivos viven en la raíz del repositorio.
 | `Vetting_Beneficiarios_plantilla.csv` | Plantilla de carga con los nueve encabezados exactos. |
 | `.gitignore` | Exclusiones de trabajo local. |
 | `.nojekyll` | Evita que GitHub Pages procese el sitio con Jekyll. |
+| `MANUAL_CAPTURA.md` | Manual de captura paso a paso, escenario por escenario. |
 | `README.md` | Este documento. |
 
 ---
@@ -124,6 +143,9 @@ Pestañas resultantes:
 
 ### 2. Panel ejecutivo (aplicación de Apps Script)
 
+0. Si su base ya estaba estructurada, ejecute una sola vez
+   **▸ RASTROS ▸ Crear pestañas dinámicas**. Es aditivo: crea las cuatro pestañas nuevas y la
+   columna de abreviaturas sin tocar una sola celda de lo existente.
 1. Pulse **+ ▸ HTML**, nombre el archivo **`Panel`** (sin extensión) y pegue el contenido de
    `Panel.html`. El nombre importa: `doGet()` lo busca exactamente así.
 2. **Implementar ▸ Nueva implementación ▸ Tipo: Aplicación web**
@@ -157,17 +179,21 @@ para que el panel, el reporte impreso y cualquier consumidor futuro vean las mis
 - `porDependencia` — acumulado por entidad, incluidas las que aún no reportan ninguna propuesta.
 - `alertas` — tarjetas de cuellos de botella con su nivel (`critica` / `atencion` / `ok`).
 - `diagnostico` — recibidos, validados, meta y desglose por institución (columna P05).
-- `eventos`, `metas`, `diasRestantes`.
+- `eventos`, `metas` (con nombre, descripción, objetivos y fuente), `diasRestantes`.
+- `metadatos`, `configuracion`, `pendientesUnodc`, `rutaCritica`, `catalogos`, `abreviaturas`.
+
+Funciones de lectura: `leerConfiguracion()`, `leerMetadatos()`, `leerPendientesUNODC()`,
+`leerRutaCritica()`, `leerCatalogos()`, `leerAbreviaturas()`. Todas con caché por ejecución y
+lectura acotada al contenido real de cada hoja.
 
 El frontend replica esa lógica **solo como respaldo**, para que la vista previa y la lectura por
 CSV muestren lo mismo. Si el servidor manda los agregados, mandan ellos.
 
 ### Supuesto que conviene revisar
 
-`CFG.CUOTA_POR_DEPENDENCIA = 2` alimenta la alerta de *dependencias por debajo de cuota*. Sale de
-la minuta del 22/07/2026, donde UNODC habló de «tal vez uno, dos por unidad», no de una cifra
-formal. Ajústelo en `Codigo.gs` y en la constante homónima de `Panel.html` cuando UNODC confirme
-el número.
+`CUOTA_POR_DEPENDENCIA = 2` alimenta la alerta de *dependencias por debajo de cuota*. Sale de la
+minuta del 22/07/2026, donde UNODC habló de «tal vez uno, dos por unidad», no de una cifra formal.
+**Ya no se edita en el código:** cámbielo en `Configuracion_Dashboard`.
 
 ### Captura desde el panel
 
