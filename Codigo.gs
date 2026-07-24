@@ -26,6 +26,7 @@ const CFG = {
   NOMBRE_LIBRO: 'RASTROS_UNODC_Master_DB',
   ID_LIBRO: '1sufZxmUgFnd5M1a00EhyoM0VRbU0z4f5hs3cGbrA73g',
   META_CUESTIONARIOS: 25,                         // funcionarios previstos en Jalisco
+  CUOTA_POR_DEPENDENCIA: 2,                       // supuesto operativo; ajústelo si UNODC define otra cifra
   FECHA_LIMITE_VETTING: new Date(2026, 6, 29),   // 29 de julio de 2026
   FILAS_PRECARGADAS: 200,                         // filas con formato/validación
   ZONA_HORARIA: 'America/Mexico_City',
@@ -832,6 +833,15 @@ function obtenerDatosTablero() {
       { id: 'M4', real: reales[3] }
     ].map(function (m) { return { id: m.id, real: Number(m.real) || 0 }; });
 
+    const diagPorDep = diagnosticoPorDependencia_(shD);
+    const agrupado = agruparPorDependencia_(beneficiarios);
+    const diagnostico = {
+      recibidas: recibidas,
+      validadas: validadas,
+      meta: CFG.META_CUESTIONARIOS,
+      porDependencia: diagPorDep
+    };
+
     return {
       ok: true,
       usuario: Session.getActiveUser().getEmail() || '',
@@ -839,7 +849,10 @@ function obtenerDatosTablero() {
       beneficiarios: beneficiarios,
       eventos: eventos,
       metas: metas,
-      diagnostico: { recibidas: recibidas, validadas: validadas, meta: CFG.META_CUESTIONARIOS }
+      diagnostico: diagnostico,
+      porDependencia: agrupado,
+      diasRestantes: diasParaLimite_(),
+      alertas: construirAlertas_(beneficiarios, agrupado, diagnostico, eventos)
     };
 
   } catch (e) {
@@ -864,4 +877,244 @@ function urlDelTablero() {
     url ? url : 'Aún no hay una implementación activa. Use Implementar ▸ Nueva implementación.',
     SpreadsheetApp.getUi().ButtonSet.OK
   );
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * ESCRITURA — ALTA DE PROPUESTAS  [DISPONIBLE, SIN USO ACTUALMENTE]
+ * ─────────────────────────────────────────────────────────────────────────
+ * El rediseño de julio de 2026 retiró el formulario de alta del tablero: la
+ * captura se hace directamente en la base master. La función se conserva
+ * probada y lista por si se decide reactivar la captura desde el panel;
+ * basta con volver a llamarla con google.script.run desde Panel.html.
+ *
+ * Si se reactiva: escribe la fila en
+ * Vetting_Beneficiarios. Requisitos de la implementación:
+ *   · "Ejecutar como: Usuario que accede"  → cada quien escribe con su
+ *     propia cuenta y necesita permiso de edición sobre el libro. Queda
+ *     rastro de quién capturó en el historial de versiones de Google.
+ *   · "Ejecutar como: Yo"                  → cualquiera con acceso al
+ *     tablero puede dar de alta aunque no tenga permiso sobre la hoja.
+ *     Cómodo, pero el historial atribuye todo al propietario.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+const RE_CORREO_SRV = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Localiza la primera fila sin nombre capturado en Vetting_Beneficiarios.
+ * No se usa appendRow(): la columna H trae la fecha límite precargada en 200
+ * filas, así que getLastRow() devuelve 201 y el alta caería fuera del rango
+ * con fórmulas y validaciones.
+ */
+function primeraFilaLibre_(sh) {
+  const tope = Math.max(sh.getLastRow(), CFG.FILAS_PRECARGADAS + 1);
+  const nombres = sh.getRange(2, 2, tope - 1, 1).getValues();
+  for (let i = 0; i < nombres.length; i++) {
+    if (String(nombres[i][0]).trim() === '') return i + 2;
+  }
+  return tope + 1;
+}
+
+/**
+ * Da de alta una propuesta de vetting.
+ * @param {Object} d {nombre, cargo, dependencia, rol, correo}
+ * @return {Object} {ok, mensaje, id, fila, datos}
+ */
+function agregarBeneficiario(d) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+  } catch (e) {
+    return { ok: false, mensaje: 'Otra alta se está guardando en este momento. Inténtelo de nuevo.' };
+  }
+
+  try {
+    d = d || {};
+    const nombre = String(d.nombre || '').trim();
+    const cargo = String(d.cargo || '').trim();
+    const dependencia = String(d.dependencia || '').trim();
+    const rol = String(d.rol || '').trim();
+    const correo = String(d.correo || '').trim();
+
+    // Validación en el servidor: el navegador ya validó, pero no se le confía.
+    if (!nombre) return { ok: false, mensaje: 'Falta el nombre de la persona propuesta.' };
+    if (!cargo) return { ok: false, mensaje: 'Falta el cargo de la persona propuesta.' };
+    if (!RE_CORREO_SRV.test(correo)) return { ok: false, mensaje: 'El correo no tiene un formato válido.' };
+    if (LISTAS.Tipo_Rol.indexOf(rol) === -1) {
+      return { ok: false, mensaje: 'Tipo de rol no reconocido: ' + rol };
+    }
+    if (LISTAS.Dependencia.indexOf(dependencia) === -1) {
+      return { ok: false, mensaje: 'Dependencia no reconocida: ' + dependencia };
+    }
+
+    const ss = abrirLibro_();
+    const sh = ss.getSheetByName(HOJAS.VETTING.nombre);
+    if (!sh) {
+      return { ok: false, mensaje: 'No se encontró la pestaña ' + HOJAS.VETTING.nombre + ' en la base master.' };
+    }
+
+    // Duplicados por correo
+    if (sh.getLastRow() > 1) {
+      const correos = sh.getRange(2, 6, sh.getLastRow() - 1, 1).getValues();
+      for (let i = 0; i < correos.length; i++) {
+        if (String(correos[i][0]).trim().toLowerCase() === correo.toLowerCase()) {
+          return { ok: false, mensaje: 'Ese correo ya está registrado en la fila ' + (i + 2) + '.' };
+        }
+      }
+    }
+
+    const fila = primeraFilaLibre_(sh);
+    sh.getRange(fila, 2, 1, 5).setValues([[nombre, cargo, dependencia, rol, correo]]);
+    sh.getRange(fila, 7).setValue('Pendiente');
+
+    // Si el alta cayó fuera del rango precargado, replicar fórmula y fecha.
+    if (!sh.getRange(fila, 1).getFormula()) {
+      sh.getRange(fila, 1).setFormula(
+        '=IF(LEN(B' + fila + ')=0,"","RAS-VET-"&TEXT(ROW()-1,"000"))');
+    }
+    if (sh.getRange(fila, 8).getValue() === '') {
+      sh.getRange(fila, 8).setValue(CFG.FECHA_LIMITE_VETTING)
+        .setNumberFormat('dd/mm/yyyy').setHorizontalAlignment('center');
+    }
+
+    SpreadsheetApp.flush();
+
+    return {
+      ok: true,
+      fila: fila,
+      id: sh.getRange(fila, 1).getDisplayValue(),
+      mensaje: 'Propuesta guardada en la base master, fila ' + fila + '.',
+      datos: obtenerDatosTablero()
+    };
+
+  } catch (e) {
+    return { ok: false, mensaje: 'No se pudo escribir en la base master: ' + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * AGREGADOS PARA EL PANEL EJECUTIVO
+ * Se calculan aquí y no en el navegador, para que el tablero, el reporte
+ * imprimible y cualquier consumidor futuro vean exactamente las mismas
+ * cifras. El frontend replica esta lógica solo como respaldo cuando no hay
+ * backend disponible.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+function diasParaLimite_() {
+  const hoy = new Date();
+  const cero = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  return Math.round((CFG.FECHA_LIMITE_VETTING - cero) / 86400000);
+}
+
+/** Acumula el vetting por dependencia, incluyendo las que aún no reportan. */
+function agruparPorDependencia_(beneficiarios) {
+  const mapa = {};
+  const orden = [];
+
+  function asegurar(dep) {
+    if (!mapa[dep]) {
+      mapa[dep] = { dependencia: dep, total: 0, pendiente: 0, enviado: 0, aprobado: 0, sinCorreo: 0 };
+      orden.push(dep);
+    }
+    return mapa[dep];
+  }
+
+  // Las dependencias del catálogo aparecen aunque tengan cero propuestas:
+  // una entidad sin registros es justamente la que hay que perseguir.
+  LISTAS.Dependencia.forEach(function (d) { if (d !== 'Otra') asegurar(d); });
+
+  beneficiarios.forEach(function (b) {
+    const g = asegurar(b.dependencia || 'Sin dependencia');
+    g.total++;
+    if (b.estatus === 'Aprobado') g.aprobado++;
+    else if (b.estatus === 'Enviado Embajada') g.enviado++;
+    else g.pendiente++;
+    if (!b.correo) g.sinCorreo++;
+  });
+
+  return orden.map(function (d) { return mapa[d]; });
+}
+
+/** Cuenta cuestionarios por institución, leyendo la columna P05 del diagnóstico. */
+function diagnosticoPorDependencia_(shD) {
+  if (!shD || shD.getLastRow() < 3) return [];
+  const filas = shD.getLastRow() - 2;
+  const ids = shD.getRange(3, 2, filas, 2).getValues();      // ID_Respuesta, Estatus_Validacion
+  const inst = shD.getRange(3, 8, filas, 1).getValues();     // P05. Institución a la que pertenece
+
+  const mapa = {}, orden = [];
+  for (let i = 0; i < filas; i++) {
+    if (!String(ids[i][0]).trim()) continue;
+    const dep = String(inst[i][0]).trim() || 'Sin institución declarada';
+    if (!mapa[dep]) { mapa[dep] = { dependencia: dep, recibidas: 0, validadas: 0 }; orden.push(dep); }
+    mapa[dep].recibidas++;
+    if (String(ids[i][1]).trim() === 'Validada') mapa[dep].validadas++;
+  }
+  return orden.map(function (d) { return mapa[d]; });
+}
+
+/** Construye las tarjetas de cuellos de botella del Módulo 1. */
+function construirAlertas_(beneficiarios, agrupado, diagnostico, eventos) {
+  const dias = diasParaLimite_();
+  const total = beneficiarios.length;
+  const pend = beneficiarios.filter(function (b) { return b.estatus === 'Pendiente'; }).length;
+  const sinCorreo = beneficiarios.filter(function (b) { return !b.correo; }).length;
+  const bajoCuota = agrupado.filter(function (g) { return g.total < CFG.CUOTA_POR_DEPENDENCIA; });
+  const porValidar = Math.max(diagnostico.recibidas - diagnostico.validadas, 0);
+  const a = [];
+
+  a.push({
+    nivel: dias <= 3 ? 'critica' : (dias <= 10 ? 'atencion' : 'ok'),
+    titulo: 'Cierre de vetting',
+    cifra: dias > 0 ? dias + (dias === 1 ? ' día' : ' días') : (dias === 0 ? 'Hoy' : 'Vencido'),
+    detalle: pend + ' de ' + total + ' propuestas siguen en estatus Pendiente. Límite: 29 de julio de 2026.'
+  });
+
+  a.push({
+    nivel: bajoCuota.length ? 'critica' : 'ok',
+    titulo: 'Dependencias por debajo de cuota',
+    cifra: bajoCuota.length + ' de ' + agrupado.length,
+    detalle: bajoCuota.length
+      ? 'Faltan propuestas en: ' + bajoCuota.map(function (g) {
+          return g.dependencia + ' (' + g.total + '/' + CFG.CUOTA_POR_DEPENDENCIA + ')';
+        }).join(' · ')
+      : 'Todas las dependencias alcanzan la cuota de ' + CFG.CUOTA_POR_DEPENDENCIA + ' propuestas.'
+  });
+
+  a.push({
+    nivel: sinCorreo ? 'critica' : 'ok',
+    titulo: 'Registros sin correo',
+    cifra: sinCorreo,
+    detalle: sinCorreo
+      ? 'El formato de la Embajada exige correo electrónico. Estos registros no pueden enviarse todavía.'
+      : 'Todos los registros tienen correo capturado.'
+  });
+
+  a.push({
+    nivel: 'critica',
+    titulo: 'Pendientes con UNODC',
+    cifra: 1,
+    detalle: 'Anexo 3: confirmar si la Embajada lo requerirá, para anticiparlo en la planeación logística de los oficios.'
+  });
+
+  a.push({
+    nivel: diagnostico.recibidas === 0 ? 'atencion' : (porValidar > 0 ? 'atencion' : 'ok'),
+    titulo: 'Diagnóstico',
+    cifra: diagnostico.recibidas + ' / ' + diagnostico.meta,
+    detalle: diagnostico.recibidas === 0
+      ? 'Aún no se recibe ningún cuestionario. El instrumento se difunde tras la revisión de los tomadores de decisiones.'
+      : porValidar + ' cuestionarios pendientes de validar.'
+  });
+
+  a.push({
+    nivel: eventos.length ? 'ok' : 'atencion',
+    titulo: 'Mesas y capacitaciones',
+    cifra: eventos.length,
+    detalle: eventos.length
+      ? 'Eventos programados en la base master.'
+      : 'No hay eventos capturados. Registre las mesas de la semana del 24 de agosto.'
+  });
+
+  return a;
 }

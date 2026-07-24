@@ -1,18 +1,23 @@
 # ── Datos sensibles: nunca versionar información real de vetting ──
 *.xlsx
-*.xls
-!Formato_VETTING_plantilla.xlsx
+!RASTROS_UNODC_Master_DB.xlsx
 Vetting_*.csv
 !Vetting_Beneficiarios_plantilla.csv
 Respuestas_*.csv
 respaldos/
 *_RESPALDO_*
+RESPALDO_*
 *.pdf
 
 # ── Apps Script / clasp ──
 .clasp.json
 .clasprc.json
 node_modules/
+
+# ── Python ──
+__pycache__/
+*.pyc
+.venv/
 
 # ── Sistema operativo y editores ──
 .DS_Store
