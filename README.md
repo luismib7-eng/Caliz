@@ -33,7 +33,8 @@ Todos los archivos viven en la raíz del repositorio.
 
 | Archivo | Qué es |
 |---|---|
-| `index.html` | Tablero de control y CRM de vetting. Página única, sin dependencias de compilación. |
+| `Panel.html` | Tablero de control y CRM de vetting. Es el archivo que se pega en Apps Script. |
+| `index.html` | Copia idéntica de `Panel.html` para vista previa en GitHub Pages (sin datos en vivo). |
 | `Codigo.gs` | Google Apps Script que estructura la base master en Google Sheets. |
 | `appsscript.json` | Manifiesto del proyecto de Apps Script (necesario solo si usa `clasp`). |
 | `Vetting_Beneficiarios_plantilla.csv` | Plantilla de carga con los nueve encabezados exactos. |
@@ -68,40 +69,46 @@ Auxiliares (desactivables con la constante `CFG.CREAR_HOJAS_AUXILIARES`):
 `Listas_Catalogos` y `Mapeo_Formato_VETTING_Oficial`, este último espejo de las 31 columnas del
 archivo oficial `Formato VETTING 2026.xlsx` para exportar sin recapturar.
 
-### 2. Tablero web
+### 2. Tablero web (aplicación de Apps Script)
 
-Abra `index.html` en cualquier navegador. No requiere servidor, instalación ni compilación.
+En el mismo editor de Apps Script:
 
-Para publicarlo en **GitHub Pages**: *Settings ▸ Pages ▸ Source: Deploy from a branch ▸ `main` / `root`*.
-El archivo `.nojekyll` ya está incluido. No se agregó flujo de trabajo en `.github/workflows/`
-porque exigiría subcarpetas; Pages funciona sin él.
+1. Pulse **+ ▸ HTML**, nombre el archivo **`Panel`** (sin extensión) y pegue el contenido de
+   `Panel.html`. El nombre importa: `doGet()` lo busca exactamente así.
+2. **Implementar ▸ Nueva implementación ▸ Tipo: Aplicación web**
+   - Ejecutar como: **Usuario que accede**
+   - Quién tiene acceso: **Usuarios de jalisco.gob.mx**
+3. Copie la URL que termina en `/exec`. Ésa es la dirección del tablero.
+
+Listo. La URL queda fija: quien la abra con su cuenta institucional verá los datos actualizados
+de la base master, sin publicar nada en internet. Para recuperarla más tarde:
+**▸ RASTROS ▸ Ver URL del tablero web**.
+
+Cada vez que modifique `Codigo.gs` o `Panel.html` debe pulsar **Implementar ▸ Gestionar
+implementaciones ▸ Editar ▸ Versión: Nueva** para que los cambios surtan efecto. La URL no cambia.
 
 ---
 
-## Conexión con datos en vivo
+## Origen de los datos
 
-El tablero intenta leer la pestaña `Vetting_Beneficiarios` por dos rutas, en orden:
+El tablero resuelve su fuente en cascada y lo informa en el indicador del encabezado:
 
-1. `…/export?format=csv&gid=0`
-2. `…/gviz/tq?tqx=out:csv&sheet=Vetting_Beneficiarios`
-
-El indicador del encabezado informa el origen de lo que está viendo:
-
-- 🟢 **En vivo (Google Sheets)** — se leyeron registros reales de la hoja.
-- 🟡 **Vista previa local** — se usan las plazas por designar precargadas.
+| Indicador | Significado |
+|---|---|
+| 🟢 **En vivo (base master)** | Corre dentro de Apps Script y lee la hoja con `google.script.run`. Es el modo previsto. |
+| 🟢 **En vivo (Google Sheets)** | Leyó el CSV publicado. Solo ocurre si la hoja se publicó en la web. |
+| 🟡 **Vista previa local** | Muestra las plazas por designar precargadas. Es lo que verá al abrir `index.html` suelto. |
 
 Pulse el indicador para reintentar la lectura.
 
-Mientras la hoja no esté publicada en **Archivo ▸ Compartir ▸ Publicar en la web**, el navegador
-bloqueará la petición por política de origen cruzado y el tablero mostrará la vista previa local.
-Esto es deliberado: la alternativa a publicar la hoja es servir el tablero con `HtmlService` dentro
-del mismo Apps Script y leer los datos con `google.script.run`, que respeta los permisos del libro
-sin exponerlo. Elija la ruta según la clasificación que se dé a la información.
+La función `obtenerDatosTablero()` es la única puerta de entrada: devuelve los registros de
+vetting, los eventos capturados, el avance de las metas y el conteo de cuestionarios recibidos.
+Está en `Codigo.gs` y **solo lee**. Las altas capturadas en pantalla se exportan con el botón
+*Descargar CSV* y deben registrarse en la base master; no se escriben solas.
 
-El tablero **solo lee**. Las altas capturadas en pantalla se exportan con el botón *Descargar CSV*
-y deben registrarse en la base master; no se escriben solas.
-
----
+No hace falta publicar la hoja en la web. Si de todos modos alguien la publica, el tablero también
+funcionará por esa vía, pero recuerde que ese modo expone la pestaña completa a cualquiera que
+tenga el enlace.
 
 ## Fechas y acuerdos de referencia
 

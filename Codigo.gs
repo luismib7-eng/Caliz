@@ -24,6 +24,8 @@
 
 const CFG = {
   NOMBRE_LIBRO: 'RASTROS_UNODC_Master_DB',
+  ID_LIBRO: '1sufZxmUgFnd5M1a00EhyoM0VRbU0z4f5hs3cGbrA73g',
+  META_CUESTIONARIOS: 25,                         // funcionarios previstos en Jalisco
   FECHA_LIMITE_VETTING: new Date(2026, 6, 29),   // 29 de julio de 2026
   FILAS_PRECARGADAS: 200,                         // filas con formato/validación
   ZONA_HORARIA: 'America/Mexico_City',
@@ -690,6 +692,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Respaldar libro', 'respaldarLibro')
     .addItem('Reporte de estatus de vetting', 'reporteVetting')
+    .addSeparator()
+    .addItem('Ver URL del tablero web', 'urlDelTablero')
     .addToUi();
 }
 
@@ -721,6 +725,143 @@ function reporteVetting() {
     'Enviado Embajada: ' + conteo['Enviado Embajada'] + '\n' +
     'Aprobado: ' + conteo['Aprobado'] + '\n\n' +
     'Fecha límite: 29/07/2026 (' + dias + ' días).',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * APLICACIÓN WEB — TABLERO DE CONTROL
+ * ─────────────────────────────────────────────────────────────────────────
+ * Sirve el archivo Panel.html y le entrega los datos de la base master sin
+ * publicar la hoja en internet. El acceso se resuelve con la cuenta
+ * institucional de cada persona, no con un enlace público.
+ *
+ * IMPLEMENTACIÓN (una sola vez):
+ *   Implementar ▸ Nueva implementación ▸ Tipo: Aplicación web
+ *     · Ejecutar como:        Usuario que accede
+ *     · Quién tiene acceso:   Usuarios de jalisco.gob.mx
+ *   Copiar la URL /exec resultante y compartirla con quien deba consultarla.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Panel')
+    .setTitle('RASTROS · Tablero de control')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** Abre el libro por ID y, si no es posible, cae al contenedor activo. */
+function abrirLibro_() {
+  try {
+    return SpreadsheetApp.openById(CFG.ID_LIBRO);
+  } catch (e) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) return ss;
+    throw new Error('No fue posible abrir la base master: ' + e.message);
+  }
+}
+
+/**
+ * Única función que consume el tablero. Devuelve un objeto plano:
+ * { ok, usuario, actualizado, beneficiarios[], eventos[], metas[], diagnostico{} }
+ */
+function obtenerDatosTablero() {
+  try {
+    const ss = abrirLibro_();
+
+    /* -- Vetting ------------------------------------------------------- */
+    const beneficiarios = [];
+    const shV = ss.getSheetByName(HOJAS.VETTING.nombre);
+    if (shV && shV.getLastRow() > 1) {
+      shV.getRange(2, 1, shV.getLastRow() - 1, 9).getValues().forEach(function (f, i) {
+        if (!String(f[1]).trim()) return;
+        beneficiarios.push({
+          id: String(f[0] || 'RAS-VET-' + ('00' + (i + 1)).slice(-3)),
+          nombre: String(f[1]).trim(),
+          cargo: String(f[2] || '').trim(),
+          dependencia: String(f[3] || '').trim(),
+          rol: String(f[4] || '').trim(),
+          correo: String(f[5] || '').trim(),
+          estatus: LISTAS.Estatus_Vetting.indexOf(String(f[6]).trim()) !== -1
+            ? String(f[6]).trim() : 'Pendiente'
+        });
+      });
+    }
+
+    /* -- Mesas y capacitaciones ---------------------------------------- */
+    const eventos = [];
+    let capacitados = 0;
+    const shM = ss.getSheetByName(HOJAS.MESAS.nombre);
+    if (shM && shM.getLastRow() > 1) {
+      shM.getRange(2, 1, shM.getLastRow() - 1, 8).getValues().forEach(function (f) {
+        if (!String(f[1]).trim()) return;
+        const asistentes = Number(f[5]) || 0;
+        if (String(f[1]).trim() === 'Capacitación') capacitados += asistentes;
+        eventos.push({
+          id: String(f[0] || ''),
+          tipo: String(f[1]).trim(),
+          fecha: f[2] instanceof Date
+            ? Utilities.formatDate(f[2], CFG.ZONA_HORARIA, 'dd/MM/yyyy')
+            : String(f[2] || ''),
+          sede: String(f[3] || ''),
+          catering: String(f[4] || ''),
+          asistentes: asistentes,
+          acuerdos: String(f[6] || ''),
+          minuta: String(f[7] || '')
+        });
+      });
+    }
+
+    /* -- Diagnóstico ---------------------------------------------------- */
+    let recibidas = 0, validadas = 0;
+    const shD = ss.getSheetByName(DIAGNOSTICO.nombre);
+    if (shD && shD.getLastRow() > 2) {
+      shD.getRange(3, 2, shD.getLastRow() - 2, 2).getValues().forEach(function (f) {
+        if (!String(f[0]).trim()) return;
+        recibidas++;
+        if (String(f[1]).trim() === 'Validada') validadas++;
+      });
+    }
+
+    /* -- Metas ---------------------------------------------------------- */
+    const reales = leerRealesDeKPIs_(ss);
+    const metas = [
+      { id: 'M1', real: reales[0] },
+      { id: 'M2', real: reales[1] !== null ? reales[1] : capacitados },
+      { id: 'M3', real: reales[2] },
+      { id: 'M4', real: reales[3] }
+    ].map(function (m) { return { id: m.id, real: Number(m.real) || 0 }; });
+
+    return {
+      ok: true,
+      usuario: Session.getActiveUser().getEmail() || '',
+      actualizado: Utilities.formatDate(new Date(), CFG.ZONA_HORARIA, "dd/MM/yyyy HH:mm"),
+      beneficiarios: beneficiarios,
+      eventos: eventos,
+      metas: metas,
+      diagnostico: { recibidas: recibidas, validadas: validadas, meta: CFG.META_CUESTIONARIOS }
+    };
+
+  } catch (e) {
+    return { ok: false, mensaje: e.message };
+  }
+}
+
+/** Lee la columna Real de Control_Metas_y_KPIs; devuelve null donde no haya valor. */
+function leerRealesDeKPIs_(ss) {
+  const sh = ss.getSheetByName(HOJAS.KPIS.nombre);
+  if (!sh || sh.getLastRow() < 5) return [null, null, null, null];
+  return sh.getRange(2, 6, 4, 1).getValues().map(function (f) {
+    return (f[0] === '' || f[0] === null) ? null : Number(f[0]);
+  });
+}
+
+/** Devuelve la URL de la aplicación web ya implementada. */
+function urlDelTablero() {
+  const url = ScriptApp.getService().getUrl();
+  SpreadsheetApp.getUi().alert(
+    'Tablero RASTROS',
+    url ? url : 'Aún no hay una implementación activa. Use Implementar ▸ Nueva implementación.',
     SpreadsheetApp.getUi().ButtonSet.OK
   );
 }
