@@ -11,7 +11,7 @@
     "https://www.googleapis.com/auth/drive"
   ],
   "webapp": {
-    "access": "DOMAIN",
+    "access": "MYSELF",
     "executeAs": "USER_ACCESSING"
   }
 }
