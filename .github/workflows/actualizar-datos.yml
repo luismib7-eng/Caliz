@@ -68,4 +68,3 @@ jobs:
 #                   corte. Es el que alimenta la grafica de tendencia y el
 #                   delta de las tarjetas KPI, y por eso conserva 120 dias.
 # ---------------------------------------------------------------
-
