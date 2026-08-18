@@ -38,11 +38,14 @@ import argparse
 import csv
 import io
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 
-COLUMNAS = ["Fecha", "Region", "Estado", "Municipio", "Estacion",
+COLUMNAS = ["Fecha", "Region", "Estado", "Municipio", "Marca", "Estacion",
             "Permiso CRE", "Direccion", "Regular", "Premium", "Diesel"]
+
+COLUMNAS_HISTORICO = ["Fecha", "Ambito", "Clave", "Producto", "Promedio", "Estaciones"]
 
 PRODUCTOS = {"regular": "Regular", "premium": "Premium", "diesel": "Diesel"}
 
@@ -53,8 +56,11 @@ CON_MARCADOR = ("Region", "Estado", "Municipio")
 
 # Encabezados aceptados en el catálogo, sin distinguir mayúsculas ni acentos.
 ALIAS_CATALOGO = {
-    "permiso": ["permiso cre", "permisocre", "numero", "num permiso", "permiso"],
+    "permiso": ["permiso cre", "permisocre", "numero", "num permiso", "permiso", "cre id", "cre_id"],
+    "lat": ["lat", "latitud", "latitude", "y"],
+    "lon": ["lon", "lng", "longitud", "longitude", "x"],
     "estacion": ["estacion", "razon social", "nombre"],
+    "marca": ["marca", "bandera", "marca comercial"],
     "direccion": ["direccion", "domicilio"],
     "municipio": ["municipio", "ciudad", "localidad"],
     "estado": ["estado", "entidad", "entidad federativa"],
@@ -81,12 +87,96 @@ def clave_permiso(permiso):
     return k[4:] if k.startswith("CNE/") else k
 
 
+# Formatos observados en las publicaciones de la CNE:
+#   PL/658/EXP/ES/2015        estación de servicio
+#   PL/11525/EXP/ESA/2015     estación de servicio para autoconsumo
+#   PL/22553/EXP/ES/MM/2019   con segmento adicional
+#   CNE/PL/138/EXP/ES/2025    permisos emitidos desde 2025
+#   PL/1234/TRA/OM/2017       otras modalidades
+PERMISO_RE = re.compile(r"(CNE/)?PL/\d+(?:/[A-Z.]{1,4})+/\d{4}", re.I)
+
+
+def leer_catalogo_xml(ruta):
+    """
+    Catálogo desde el XML de estaciones que publica la CNE junto con los
+    precios (endpoint .../publicaciones/places).
+
+    El lector es deliberadamente tolerante: recorre cualquier elemento que
+    contenga una cadena con forma de permiso —en un atributo o en un hijo— y
+    toma el nombre y el domicilio de los hijos cuyo nombre de etiqueta lo
+    sugiera. Así funciona aunque el esquema del endpoint cambie de nombres.
+    """
+    idx = {}
+    raiz = ET.parse(ruta).getroot()
+
+    def compacta(nombre):
+        """Etiqueta comparable: sin espacio de nombres, sin acentos, sin
+        separadores y en minúsculas. Así 'CreId', 'cre_id' y '{ns}CRE-ID'
+        son la misma clave."""
+        t = str(nombre or "").split("}")[-1].lower()
+        for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+            t = t.replace(a, b)
+        return re.sub(r"[^a-z0-9]", "", t)
+
+    def texto_de(nodo, claves):
+        objetivo = set(compacta(k) for k in claves)
+        for hijo in nodo.iter():
+            if hijo is nodo:
+                continue
+            if compacta(hijo.tag) in objetivo and (hijo.text or "").strip():
+                return hijo.text.strip()
+            for attr in hijo.attrib:                 # atributos de los hijos
+                if compacta(attr) in objetivo and hijo.attrib[attr].strip():
+                    return hijo.attrib[attr].strip()
+        for attr in nodo.attrib:
+            if compacta(attr) in objetivo and nodo.attrib[attr].strip():
+                return nodo.attrib[attr].strip()
+        return ""
+
+    for nodo in raiz.iter():
+        if nodo is raiz and len(list(raiz)) > 1:
+            continue          # la raíz agrupa a todas: no es una estación
+        permiso = ""
+        for v in list(nodo.attrib.values()):
+            m = PERMISO_RE.search(str(v))
+            if m:
+                permiso = m.group(0)
+                break
+        if not permiso:
+            hijo = texto_de(nodo, ("cre_id", "creid", "permiso", "permiso_cre", "numero", "num_permiso"))
+            m = PERMISO_RE.search(hijo or "")
+            if m:
+                permiso = m.group(0)
+        if not permiso:
+            continue
+
+        registro = {
+            "Marca": texto_de(nodo, ("marca", "brand", "bandera")),
+            "Estacion": texto_de(nodo, ("name", "nombre", "razon_social", "razonsocial", "nombre_comercial")),
+            "Direccion": texto_de(nodo, ("address", "direccion", "domicilio", "street", "calle")),
+            "Municipio": texto_de(nodo, ("municipio", "municipality", "city", "localidad", "ciudad")),
+            "Estado": texto_de(nodo, ("estado", "state", "entidad", "entidad_federativa")),
+            "Region": texto_de(nodo, ("region", "zona")),
+            "Lat": texto_de(nodo, ("y", "lat", "latitud", "latitude")),
+            "Lon": texto_de(nodo, ("x", "lon", "lng", "longitud", "longitude")),
+        }
+        if not any(registro.values()):
+            continue
+        idx.setdefault("".join(permiso.split()).upper(), registro)
+        idx.setdefault(clave_permiso(permiso), registro)
+
+    return idx
+
+
 def leer_catalogo(ruta):
-    """Indexa el catálogo por permiso literal y por clave canónica."""
+    """Indexa el catálogo por permiso literal y por clave canónica.
+    Acepta CSV o el XML de estaciones de la CNE."""
     if not ruta:
         return {}
     if not os.path.exists(ruta):
         sys.exit("No se encontró el catálogo: %s" % ruta)
+    if ruta.lower().endswith(".xml"):
+        return leer_catalogo_xml(ruta)
 
     idx = {}
     with io.open(ruta, encoding="utf-8-sig", newline="") as fh:
@@ -103,6 +193,7 @@ def leer_catalogo(ruta):
             return -1
 
         cols = dict((campo, col(campo)) for campo in ALIAS_CATALOGO)
+
         if cols["permiso"] < 0:
             sys.exit("El catálogo no tiene columna de permiso (Permiso CRE / Número).")
 
@@ -120,6 +211,9 @@ def leer_catalogo(ruta):
             if not permiso:
                 continue
             registro = {
+                "Lat": val(fila, "lat"),
+                "Lon": val(fila, "lon"),
+                "Marca": val(fila, "marca"),
                 "Estacion": val(fila, "estacion"),
                 "Direccion": val(fila, "direccion"),
                 "Municipio": val(fila, "municipio"),
@@ -178,6 +272,7 @@ def convertir(ruta_xml, catalogo, minimo, maximo):
             "Region": info.get("Region", ""),
             "Estado": info.get("Estado", ""),
             "Municipio": info.get("Municipio", ""),
+            "Marca": info.get("Marca", ""),
             "Estacion": info.get("Estacion", ""),
             "Permiso CRE": permiso,
             "Direccion": info.get("Direccion", ""),
@@ -199,20 +294,157 @@ def convertir(ruta_xml, catalogo, minimo, maximo):
     return filas, st
 
 
-def escribir(filas, salida, acumular):
+def leer_existente(ruta):
+    """Devuelve (filas, fechas) del CSV acumulado, o listas vacías."""
+    if not os.path.exists(ruta) or os.path.getsize(ruta) == 0:
+        return [], []
+    with io.open(ruta, encoding="utf-8-sig", newline="") as fh:
+        filas = list(csv.DictReader(fh))
+    fechas = []
+    for f in filas:
+        v = (f.get("Fecha") or "").strip()
+        if v and v not in fechas:
+            fechas.append(v)
+    return filas, sorted(fechas)
+
+
+def escribir(filas, salida, acumular, conservar, fecha):
+    """
+    Sin --acumular reemplaza el archivo. Con --acumular:
+      · si la fecha ya está en el archivo, no vuelve a escribirla;
+      · conserva únicamente los últimos `conservar` cortes diarios.
+    """
     carpeta = os.path.dirname(salida)
     if carpeta:
         os.makedirs(carpeta, exist_ok=True)
 
-    encabezar, modo = True, "w"
-    if acumular and os.path.exists(salida) and os.path.getsize(salida) > 0:
-        encabezar, modo = False, "a"
-
-    with io.open(salida, modo, encoding="utf-8", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=COLUMNAS, lineterminator="\n")
-        if encabezar:
+    if not acumular:
+        with io.open(salida, "w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=COLUMNAS, lineterminator="\n")
             w.writeheader()
+            w.writerows(filas)
+        return {"accion": "reemplazado", "periodos": 1, "filas": len(filas)}
+
+    previas, fechas = leer_existente(salida)
+    if fecha and fecha in fechas:
+        return {"accion": "sin cambios (la fecha ya estaba cargada)",
+                "periodos": len(fechas), "filas": len(previas)}
+
+    todas = previas + filas
+    fechas = sorted(set(fechas + ([fecha] if fecha else [])))
+    if conservar and len(fechas) > conservar:
+        vigentes = set(fechas[-conservar:])
+        todas = [f for f in todas if (f.get("Fecha") or "").strip() in vigentes]
+        fechas = sorted(vigentes)
+
+    with io.open(salida, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLUMNAS, lineterminator="\n", extrasaction="ignore")
+        w.writeheader()
+        for f in todas:
+            w.writerow(dict((c, f.get(c, "")) for c in COLUMNAS))
+    return {"accion": "acumulado", "periodos": len(fechas), "filas": len(todas)}
+
+
+def escribir_historico(filas, ruta, fecha, conservar):
+    """
+    Serie histórica ligera: un renglón por ámbito y producto, no por estación.
+    Es lo que alimenta la gráfica de tendencia sin que el repositorio crezca
+    decenas de megabytes al día.
+    """
+    if not ruta or not fecha:
+        return None
+
+    acc = {}
+    def sumar(ambito, clave, prod, valor):
+        k = (ambito, clave, prod)
+        if k not in acc:
+            acc[k] = [0.0, 0]
+        acc[k][0] += valor
+        acc[k][1] += 1
+
+    for f in filas:
+        for prod in ("Regular", "Premium", "Diesel"):
+            if not f[prod]:
+                continue
+            v = float(f[prod])
+            sumar("nacional", "MX", prod, v)
+            if f["Estado"] and f["Estado"] != SIN_DATO:
+                sumar("estado", f["Estado"], prod, v)
+            if f["Municipio"] and f["Municipio"] != SIN_DATO:
+                sumar("municipio", (f["Estado"] or "") + "»" + f["Municipio"], prod, v)
+
+    previas, fechas = [], []
+    if os.path.exists(ruta) and os.path.getsize(ruta) > 0:
+        with io.open(ruta, encoding="utf-8-sig", newline="") as fh:
+            previas = list(csv.DictReader(fh))
+        fechas = sorted(set((f.get("Fecha") or "").strip() for f in previas if f.get("Fecha")))
+        if fecha in fechas:
+            return {"accion": "sin cambios", "periodos": len(fechas)}
+
+    nuevas = []
+    for (ambito, clave, prod), (total, n) in sorted(acc.items()):
+        nuevas.append({"Fecha": fecha, "Ambito": ambito, "Clave": clave,
+                       "Producto": prod, "Promedio": "%.4f" % (total / n), "Estaciones": n})
+
+    todas = previas + nuevas
+    fechas = sorted(set(fechas + [fecha]))
+    if conservar and len(fechas) > conservar:
+        vigentes = set(fechas[-conservar:])
+        todas = [f for f in todas if (f.get("Fecha") or "").strip() in vigentes]
+        fechas = sorted(vigentes)
+
+    with io.open(ruta, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLUMNAS_HISTORICO, lineterminator="\n", extrasaction="ignore")
+        w.writeheader()
+        for f in todas:
+            w.writerow(dict((c, f.get(c, "")) for c in COLUMNAS_HISTORICO))
+    return {"accion": "actualizado", "periodos": len(fechas), "filas": len(todas)}
+
+
+COLUMNAS_CATALOGO = ["Permiso CRE", "Marca", "Estacion", "Direccion",
+                     "Municipio", "Estado", "Region", "Lat", "Lon"]
+
+
+def exportar_catalogo(catalogo, ruta):
+    """
+    Vuelca el catálogo leído (CSV o XML) a un CSV con la estructura que espera
+    el tablero. Es la vía para convertir el XML de estaciones de la CNE en tu
+    catalogo_estaciones.csv con miles de permisos identificados.
+    """
+    vistos, filas = set(), []
+    for clave, reg in catalogo.items():
+        if not PERMISO_RE.match(clave or ""):
+            continue                      # se indexa dos veces por permiso
+        canon = clave_permiso(clave)
+        if canon in vistos:
+            continue
+        vistos.add(canon)
+        filas.append({
+            "Permiso CRE": clave,
+            "Marca": reg.get("Marca", ""),
+            "Estacion": reg.get("Estacion", ""),
+            "Direccion": reg.get("Direccion", ""),
+            "Municipio": reg.get("Municipio", ""),
+            "Estado": reg.get("Estado", ""),
+            "Region": reg.get("Region", ""),
+            "Lat": reg.get("Lat", ""),
+            "Lon": reg.get("Lon", ""),
+        })
+    filas.sort(key=lambda f: f["Permiso CRE"])
+
+    carpeta = os.path.dirname(ruta)
+    if carpeta:
+        os.makedirs(carpeta, exist_ok=True)
+    with io.open(ruta, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLUMNAS_CATALOGO, lineterminator="\n")
+        w.writeheader()
         w.writerows(filas)
+
+    con_nombre = sum(1 for f in filas if f["Estacion"])
+    con_municipio = sum(1 for f in filas if f["Municipio"])
+    con_coords = sum(1 for f in filas if f["Lat"] and f["Lon"])
+    return {"filas": len(filas), "nombre": con_nombre,
+            "municipio": con_municipio, "coords": con_coords}
 
 
 def main():
@@ -224,7 +456,15 @@ def main():
     ap.add_argument("--salida", default="fallback.csv",
                     help="CSV de salida (por omisión fallback.csv, que es lo que lee config.js)")
     ap.add_argument("--acumular", action="store_true",
-                    help="Agrega las filas al final del archivo en lugar de reemplazarlo")
+                    help="Agrega el periodo al archivo en lugar de reemplazarlo (no duplica fechas ya cargadas)")
+    ap.add_argument("--conservar", type=int, default=0,
+                    help="Con --acumular, número de cortes diarios a conservar (0 = todos)")
+    ap.add_argument("--historico", default="",
+                    help="CSV de promedios diarios por ámbito y producto que alimenta la gráfica de tendencia")
+    ap.add_argument("--historico-conservar", type=int, default=120,
+                    help="Cortes diarios a conservar en el histórico de promedios (por omisión 120)")
+    ap.add_argument("--exportar-catalogo", default="",
+                    help="Escribe el catálogo leído a este CSV (útil para convertir el XML de estaciones de la CNE)")
     ap.add_argument("--min", type=float, default=15.0, help="Precio mínimo válido (por omisión 15.00)")
     ap.add_argument("--max", type=float, default=45.0, help="Precio máximo válido (por omisión 45.00)")
     args = ap.parse_args()
@@ -233,10 +473,16 @@ def main():
     if args.catalogo and not catalogo:
         print("Aviso: no se cargó catálogo; las estaciones quedarán identificadas por su permiso.")
 
+    if args.exportar_catalogo:
+        ce = exportar_catalogo(catalogo, args.exportar_catalogo)
+        print("Catálogo exportado:       %s (%d permisos · %d con nombre · %d con municipio · %d con coordenadas)"
+              % (args.exportar_catalogo, ce["filas"], ce["nombre"], ce["municipio"], ce["coords"]))
+
     filas, st = convertir(args.xml, catalogo, args.min, args.max)
     if not filas:
         sys.exit("El XML no produjo filas.")
-    escribir(filas, args.salida, args.acumular)
+    res = escribir(filas, args.salida, args.acumular, args.conservar, st["fecha"])
+    hist = escribir_historico(filas, args.historico, st["fecha"], args.historico_conservar)
 
     print("Fecha de generación:      %s" % st["fecha"])
     print("Estaciones en el XML:     %d" % st["estaciones"])
@@ -244,7 +490,11 @@ def main():
     print("Permisos repetidos:       %d (fusionados con el primer registro)" % st["duplicados"])
     print("Precios fuera de rango:   %d (descartados, límites %.2f-%.2f)" % (st["descartados"], args.min, args.max))
     print("Con datos de catálogo:    %d de %d" % (st["con_catalogo"], st["filas"]))
-    print("Archivo:                  %s%s" % (args.salida, " (acumulado)" if args.acumular else ""))
+    print("Archivo:                  %s (%s · %d periodo(s) · %d filas)" %
+          (args.salida, res["accion"], res["periodos"], res["filas"]))
+    if hist:
+        print("Histórico de promedios:   %s (%s · %d periodo(s))" %
+              (args.historico, hist["accion"], hist["periodos"]))
 
 
 if __name__ == "__main__":

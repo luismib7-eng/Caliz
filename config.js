@@ -39,7 +39,12 @@ window.APP_CONFIG = {
      de modo que actualizarlo no obliga a tocar esta configuración. */
   FALLBACK_CSV: "fallback.csv",
 
-  /* Catálogo permiso CRE → razón social, dirección, municipio, estado y región.
+  /* Serie histórica ligera de promedios diarios (la genera xml_a_csv.py con
+     --historico). Alimenta la gráfica de tendencia y el delta de las tarjetas
+     KPI sin cargar un padrón completo por cada día. Deja "" para desactivarla. */
+  HISTORY_CSV: "historico.csv",
+
+  /* Catálogo permiso CRE → razón social, marca, dirección, municipio, estado y región.
      El XML solo publica permiso y precios: este archivo les pone nombre y
      ubicación. Deja "" para desactivarlo. */
   CATALOG_CSV: "catalogo_estaciones.csv",
@@ -80,9 +85,41 @@ window.APP_CONFIG = {
      Captura aquí los permisos CRE de tus estaciones: es la vía confiable,
      porque la razón social en el catálogo puede no incluir la marca comercial. */
   MIS_ESTACIONES: {
+    /* Los permisos son la única vía confiable. En el catálogo nacional no
+       existe ninguna razón social con "LB GAS", y "Servicio Bautista" solo
+       coincide con una estación de Oaxaca (PL/4799/EXP/ES/2015) que no es
+       tuya: por eso la lista de patrones va vacía. */
     permisos: [],
-    patrones: ["LB GAS", "SERVICIO BAUTISTA"]
+    patrones: []
   },
+
+  /* Marcas a vigilar en la tarjeta de competencia directa. Se reconocen por la
+     columna Marca del catálogo y, en su defecto, por la razón social, siempre
+     por palabra completa.
+
+     ADVERTENCIA: el catálogo de la CNE publica la razón social, no la bandera.
+     La mayoría de las estaciones Pemex están a nombre de sociedades que no
+     dicen "Pemex", y a la inversa hay razones sociales que contienen el nombre
+     de una marca sin pertenecer a ella ("Honestidad Total", "Servicio Ciudad
+     Pemex"). La lista sirve para las marcas que sí operan con razón social
+     propia; para el resto, llena la columna Marca en catalogo_estaciones.csv. */
+  MARCAS_COMPETENCIA: ["BP", "TOTALENERGIES", "REPSOL", "SHELL", "CHEVRON",
+                       "EXXONMOBIL", "GULF", "G500", "OXXO GAS", "ARCO NORTE"],
+
+  /* Radio en kilómetros del mercado local cuando el catálogo trae coordenadas
+     (columnas Lat y Lon). Es la definición más fiel de competencia —quien está
+     a pocos kilómetros, sin importar el límite municipal— y tiene prioridad
+     sobre municipio, estado y nacional. Usa 0 para desactivarlo.
+     Referencias: 3–5 km en zona urbana, 15–25 km en carretera. */
+  RADIO_KM: 5,
+
+  /* Estado que se asigna a las estaciones sin ubicación conocida.
+     Déjalo en "" (recomendado): con un valor, TODAS las estaciones sin dato
+     quedan bajo ese estado, y entonces el "promedio estatal" contra el que se
+     mide el semáforo deja de ser el de tu plaza y pasa a ser el nacional
+     disfrazado. Los selectores nunca se deshabilitan: las estaciones sin
+     ubicación aparecen agrupadas bajo "Sin ubicación". */
+  ESTADO_POR_DEFECTO: "",
 
   /* Referencia nacional para comparar los promedios del tablero.
      Valores publicados por Profeco en "Quién es Quién en los Precios",

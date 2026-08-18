@@ -55,6 +55,12 @@
     return SIN_DATO.indexOf(s.toLowerCase()) > -1 ? "" : s;
   }
 
+  /* Coordenada decimal válida, o null. */
+  function coord(v, tope) {
+    var n = parseFloat(String(v || "").replace(",", "."));
+    return isFinite(n) && n !== 0 && Math.abs(n) <= tope ? n : null;
+  }
+
   function toNumber(v) {
     if (v === null || v === undefined) return null;
     var s = String(v).trim();
@@ -138,6 +144,8 @@
     premium:   ["premium", "preciopremium", "gasolinapremium", "preciogasolinapremium"],
     diesel:    ["diesel", "preciodiesel", "dieselduba", "preciodieselduba", "duba"],
     tipodiesel:["tipodiesel", "tipodediesel"],
+    lat:       ["lat", "latitud", "latitude"],
+    lon:       ["lon", "lng", "longitud", "longitude"],
     margen:    ["margen", "margenestimado", "indicadordedispersion", "margendeganancia"]
   };
 
@@ -187,6 +195,8 @@
         premium: toNumber(get("premium")),
         diesel: toNumber(dieselRaw),
         tipodiesel: get("tipodiesel") || dieselType(dieselRaw),
+        lat: coord(get("lat"), 90),
+        lon: coord(get("lon"), 180),
         margen: toNumber(get("margen"))
       }));
     });
@@ -391,18 +401,44 @@
       permisos[k.indexOf("CNE/") === 0 ? k.slice(4) : k] = true;
     });
     (cfg.patrones || []).forEach(function (t) {
-      var k = slug(t);
-      if (k) patrones.push(k);
+      if (String(t || "").trim()) patrones.push(t);
     });
     return { permisos: permisos, patrones: patrones, activo: Object.keys(permisos).length > 0 || patrones.length > 0 };
   })();
 
+  /* Marcas a vigilar (config.MARCAS_COMPETENCIA), reconocidas por la columna
+     Marca del catálogo y, en su defecto, por la razón social. */
+  /* La coincidencia es por PALABRA COMPLETA, nunca por subcadena. Buscar
+     "mobil" dentro del texto compactado convertía cada INMOBILIARIA en una
+     estación Mobil, y "arco" marcaba a MARCOFAN. */
+  function reglaPalabra(texto) {
+    var t = normText(texto).replace(/[^a-z0-9\s]/g, " ");
+    return " " + t.replace(/\s+/g, " ").trim() + " ";
+  }
+
+  function contienePalabras(campo, frase) {
+    var f = reglaPalabra(frase).trim();
+    return f ? campo.indexOf(" " + f + " ") > -1 : false;
+  }
+
+  var MARCAS = (CFG.MARCAS_COMPETENCIA || []).map(function (m) {
+    return { nombre: m, frase: m };
+  });
+
+  function detectaMarca(r) {
+    var campo = reglaPalabra((r.marca || "") + " " + (r.estacion || ""));
+    for (var i = 0; i < MARCAS.length; i++) {
+      if (contienePalabras(campo, MARCAS[i].frase)) return MARCAS[i].nombre;
+    }
+    return "";
+  }
+
   function esPropia(r) {
     if (!MIAS.activo) return false;
     if (r.permiso && MIAS.permisos[permitKey(r.permiso)]) return true;
-    var texto = slug(r.estacion || "") + slug(r.marca || "");
+    var campo = reglaPalabra((r.estacion || "") + " " + (r.marca || ""));
     for (var i = 0; i < MIAS.patrones.length; i++) {
-      if (texto.indexOf(MIAS.patrones[i]) > -1) return true;
+      if (contienePalabras(campo, MIAS.patrones[i])) return true;
     }
     return false;
   }
@@ -417,11 +453,15 @@
         r.estado = geo.estado;
         if (!r.municipio && geo.municipio) r.municipio = geo.municipio;
         r.inferido = true;
+      } else if (CFG.ESTADO_POR_DEFECTO) {
+        r.estado = CFG.ESTADO_POR_DEFECTO;   // asignación declarada en config.js
+        r.asignado = true;
       }
     }
     r._s = slug([r.estacion, r.permiso, permitKey(r.permiso), r.direccion,
                  r.municipio, r.estado, r.region, r.marca].join(" "));
     r._own = esPropia(r);
+    r._marca = detectaMarca(r);
     return r;
   }
 
@@ -464,7 +504,8 @@
       var row = {
         fecha: fecha, region: "", estado: "", municipio: "", marca: "",
         estacion: "", permiso: permiso, direccion: "",
-        regular: null, premium: null, diesel: null, tipodiesel: "", margen: null
+        regular: null, premium: null, diesel: null, tipodiesel: "",
+        lat: null, lon: null, margen: null
       };
       var prods = est.getElementsByTagName("producto");
       for (j = 0; j < prods.length; j++) {
@@ -490,6 +531,8 @@
       ["region", "estado", "municipio", "marca", "estacion", "direccion"].forEach(function (k) {
         if (!r[k] && c[k]) r[k] = c[k];
       });
+      if (r.lat === null && c.lat !== null && c.lat !== undefined) r.lat = c.lat;
+      if (r.lon === null && c.lon !== null && c.lon !== undefined) r.lon = c.lon;
       indexRow(r);   // recalcula búsqueda y marca de sucursal propia
     });
     return rows;
@@ -583,6 +626,13 @@
     btn.classList.add("is-spinning");
     btn.disabled = true;
 
+    var histUrl = CFG.HISTORY_CSV && CFG.HISTORY_CSV.trim();
+    if (histUrl) {
+      fetchText(histUrl)
+        .then(function (t) { historico = parseHistorico(t); if (state.rows.length) render(); })
+        .catch(function () { historico = []; });
+    }
+
     var catUrl = CFG.CATALOG_CSV && CFG.CATALOG_CSV.trim();
     var catalogo = catUrl ? fetchText(catUrl).then(buildCatalogSafe, function () { return null; })
                           : Promise.resolve(null);
@@ -662,6 +712,56 @@
         rows: rows, at: state.updatedAt.toISOString(), origin: state.origin
       }));
     } catch (e) { /* almacenamiento no disponible o lleno */ }
+  }
+
+  /* ---------------------------------------------------------
+     3 bis. Serie histórica de promedios
+     Fecha,Ambito,Clave,Producto,Promedio,Estaciones
+     --------------------------------------------------------- */
+
+  var historico = [];
+
+  function parseHistorico(text) {
+    var parsed = parseCsv(text);
+    var out = [];
+    parsed.rows.forEach(function (r) {
+      var f = (r.Fecha || "").trim();
+      var prod = (r.Producto || "").trim().toLowerCase().replace("é", "e");
+      var v = parseFloat(r.Promedio);
+      if (!f || !isFinite(v)) return;
+      out.push({
+        fecha: f,
+        ambito: (r.Ambito || "").trim().toLowerCase(),
+        clave: (r.Clave || "").trim(),
+        producto: prod === "diesel" ? "diesel" : prod,
+        promedio: v,
+        estaciones: parseInt(r.Estaciones, 10) || 0
+      });
+    });
+    return out;
+  }
+
+  /* Serie del ámbito que corresponde a los filtros activos. */
+  function serieHistorica() {
+    if (!historico.length) return { puntos: {}, fechas: [], etiqueta: "" };
+    var ambito = "nacional", clave = "MX", etiqueta = "nacional";
+    if (state.municipio && state.municipio !== SIN_UBICACION) {
+      ambito = "municipio"; clave = state.estado + "»" + state.municipio; etiqueta = state.municipio;
+    } else if (state.estado && state.estado !== SIN_UBICACION) {
+      ambito = "estado"; clave = state.estado; etiqueta = state.estado;
+    }
+    var sel = historico.filter(function (h) { return h.ambito === ambito && h.clave === clave; });
+    if (!sel.length && ambito !== "nacional") {
+      sel = historico.filter(function (h) { return h.ambito === "nacional"; });
+      etiqueta = "nacional";
+    }
+    var fechas = [], puntos = { regular: {}, premium: {}, diesel: {} };
+    sel.forEach(function (h) {
+      if (fechas.indexOf(h.fecha) === -1) fechas.push(h.fecha);
+      if (puntos[h.producto]) puntos[h.producto][h.fecha] = h.promedio;
+    });
+    fechas.sort();
+    return { puntos: puntos, fechas: fechas, etiqueta: etiqueta };
   }
 
   function readCache() {
@@ -752,40 +852,54 @@
 
   /* Estado y Municipio en cascada: el municipio solo lista los del estado
      seleccionado. */
+  /* Las estaciones sin ubicación no bloquean los filtros: se agrupan en una
+     opción propia. Los selectores siempre quedan operables. */
+  var SIN_UBICACION = "__sin__";
+
   function buildGeoSelects() {
-    var selE = $("estadoSelect"), selM = $("municipioSelect");
-    var estados = {}, i;
-    state.rows.forEach(function (r) { if (r.estado) estados[r.estado] = true; });
+    var selE = $("estadoSelect");
+    var estados = {}, sinUbic = 0;
+    state.rows.forEach(function (r) {
+      if (r.estado) estados[r.estado] = true; else sinUbic++;
+    });
     var listaE = Object.keys(estados).sort(function (a, b) { return a.localeCompare(b, "es"); });
 
     var keepE = state.estado;
     selE.innerHTML = "";
-    selE.appendChild(new Option(listaE.length ? "Todos los estados" : "Sin ubicación en la fuente", ""));
+    selE.appendChild(new Option("Todos los estados", ""));
     listaE.forEach(function (v) { selE.appendChild(new Option(v, v)); });
-    state.estado = (keepE && listaE.indexOf(keepE) > -1) ? keepE : "";
+    if (sinUbic) selE.appendChild(new Option("Sin ubicación (" + sinUbic.toLocaleString("es-MX") + ")", SIN_UBICACION));
+    selE.disabled = false;
+
+    var validos = [""].concat(listaE);
+    if (sinUbic) validos.push(SIN_UBICACION);
+    state.estado = validos.indexOf(keepE) > -1 ? keepE : "";
     selE.value = state.estado;
-    selE.disabled = !listaE.length;
 
     buildMunicipioSelect();
   }
 
   function buildMunicipioSelect() {
     var selM = $("municipioSelect");
-    var muni = {};
+    var muni = {}, sinMuni = 0;
     state.rows.forEach(function (r) {
-      if (!r.municipio) return;
-      if (state.estado && r.estado !== state.estado) return;
-      muni[r.municipio] = true;
+      if (state.estado === SIN_UBICACION) { if (r.estado) return; }
+      else if (state.estado && r.estado !== state.estado) return;
+      if (r.municipio) muni[r.municipio] = true; else sinMuni++;
     });
     var lista = Object.keys(muni).sort(function (a, b) { return a.localeCompare(b, "es"); });
 
     var keepM = state.municipio;
     selM.innerHTML = "";
-    selM.appendChild(new Option(lista.length ? "Todos los municipios" : "Sin municipios en la selección", ""));
+    selM.appendChild(new Option("Todos los municipios", ""));
     lista.forEach(function (v) { selM.appendChild(new Option(v, v)); });
-    state.municipio = (keepM && lista.indexOf(keepM) > -1) ? keepM : "";
+    if (sinMuni && lista.length) selM.appendChild(new Option("Sin municipio (" + sinMuni.toLocaleString("es-MX") + ")", SIN_UBICACION));
+    selM.disabled = false;
+
+    var validos = [""].concat(lista);
+    if (sinMuni && lista.length) validos.push(SIN_UBICACION);
+    state.municipio = validos.indexOf(keepM) > -1 ? keepM : "";
     selM.value = state.municipio;
-    selM.disabled = !lista.length;
   }
 
   function setMine(on) {
@@ -807,10 +921,17 @@
     return state.rows.filter(function (r) { return !state.period || r.fecha === state.period; });
   }
 
+  function coincideGeo(r) {
+    if (state.estado === SIN_UBICACION) { if (r.estado) return false; }
+    else if (state.estado && r.estado !== state.estado) return false;
+    if (state.municipio === SIN_UBICACION) { if (r.municipio) return false; }
+    else if (state.municipio && r.municipio !== state.municipio) return false;
+    return true;
+  }
+
   function scoped() {
     return periodRows().filter(function (r) {
-      if (state.estado && r.estado !== state.estado) return false;
-      if (state.municipio && r.municipio !== state.municipio) return false;
+      if (!coincideGeo(r)) return false;
       if (state.onlyMine && !r._own) return false;
       return true;
     });
@@ -822,7 +943,62 @@
 
   var mercado = { municipio: {}, estado: {}, nacional: {} };
 
+  /* ---------- Mercado por radio (cuando el catálogo trae coordenadas) ----------
+     Es la definición más fiel de competencia: quien está a pocos kilómetros,
+     sin importar el límite municipal. Se indexa en una rejilla para no comparar
+     cada estación contra las 13,800 restantes. */
+
+  var rejilla = null, RADIO_KM = 0;
+
+  function gradosPorKm(lat) {
+    return { lat: 1 / 110.574, lon: 1 / (111.320 * Math.cos(lat * Math.PI / 180) || 1) };
+  }
+
+  function distanciaKm(a, b) {
+    var R = 6371, p = Math.PI / 180;
+    var dLat = (b.lat - a.lat) * p, dLon = (b.lon - a.lon) * p;
+    var s1 = Math.sin(dLat / 2), s2 = Math.sin(dLon / 2);
+    var h = s1 * s1 + Math.cos(a.lat * p) * Math.cos(b.lat * p) * s2 * s2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  function construirRejilla(rows) {
+    RADIO_KM = Number(CFG.RADIO_KM || 0);
+    rejilla = null;
+    if (!RADIO_KM) return;
+    var conCoords = rows.filter(function (r) { return r.lat !== null && r.lon !== null; });
+    if (conCoords.length < 2) return;
+
+    // Celdas del tamaño del radio: basta revisar la celda y sus ocho vecinas.
+    var paso = RADIO_KM / 110.574;
+    var celdas = {};
+    conCoords.forEach(function (r) {
+      var k = Math.floor(r.lat / paso) + ":" + Math.floor(r.lon / paso);
+      (celdas[k] = celdas[k] || []).push(r);
+    });
+    rejilla = { paso: paso, celdas: celdas, total: conCoords.length };
+  }
+
+  function vecinos(r, prod) {
+    if (!rejilla || r.lat === null || r.lon === null) return null;
+    var ci = Math.floor(r.lat / rejilla.paso), cj = Math.floor(r.lon / rejilla.paso);
+    var out = [], i, j, k, lista, x;
+    for (i = ci - 1; i <= ci + 1; i++) {
+      for (j = cj - 1; j <= cj + 1; j++) {
+        lista = rejilla.celdas[i + ":" + j];
+        if (!lista) continue;
+        for (k = 0; k < lista.length; k++) {
+          x = lista[k];
+          if (x[prod] === null) continue;
+          if (distanciaKm(r, x) <= RADIO_KM) out.push(x);
+        }
+      }
+    }
+    return out;
+  }
+
   function computeMercado() {
+    construirRejilla(periodRows());
     var acc = { municipio: {}, estado: {}, nacional: {} };
     var sumar = function (bolsa, clave, prod, valor) {
       var k = clave + "|" + prod;
@@ -849,6 +1025,13 @@
      → nacional. Un municipio con una sola estación no es referencia: en ese
      caso sube al estado. */
   function referenciaLocal(r, prod) {
+    var cerca = vecinos(r, prod);
+    if (cerca && cerca.length >= 2) {
+      var t = 0;
+      for (var i = 0; i < cerca.length; i++) t += cerca[i][prod];
+      return { avg: t / cerca.length, n: cerca.length, alcance: "radio",
+               etiqueta: RADIO_KM + " km a la redonda", rows: cerca };
+    }
     var m = r.municipio && mercado.municipio[r.estado + "»" + r.municipio + "|" + prod];
     if (m && m.n >= 2) return { avg: m.avg, n: m.n, alcance: "municipio", etiqueta: r.municipio };
     var e = r.estado && mercado.estado[r.estado + "|" + prod];
@@ -872,16 +1055,26 @@
      6. KPIs
      --------------------------------------------------------- */
 
+  /* Promedio del corte inmediato anterior. Si el padrón solo trae un periodo,
+     se toma del histórico de promedios. */
   function previousPeriodAvg(product) {
     var ps = periods();
+    if (ps.length < 2 && historico.length) {
+      var h = serieHistorica();
+      var i = h.fechas.indexOf(state.period || h.fechas[h.fechas.length - 1]);
+      if (i === -1) i = h.fechas.length - 1;
+      var prevF = h.fechas[i - 1];
+      if (prevF && h.puntos[product] && h.puntos[product][prevF] !== undefined) {
+        return h.puntos[product][prevF];
+      }
+    }
     if (!state.period || ps.length < 2) return null;
     var idx = ps.indexOf(state.period);
     if (idx < 0 || idx + 1 >= ps.length) return null;
     var prev = ps[idx + 1];
     var rows = state.rows.filter(function (r) {
       if (r.fecha !== prev) return false;
-      if (state.estado && r.estado !== state.estado) return false;
-      if (state.municipio && r.municipio !== state.municipio) return false;
+      if (!coincideGeo(r)) return false;
       if (state.onlyMine && !r._own) return false;
       return true;
     });
@@ -905,8 +1098,10 @@
       deltaEl.className = "kpi__delta";
       if (mean !== null && prev !== null) {
         var d = mean - prev;
-        deltaEl.classList.add(d > 0 ? "is-up" : d < 0 ? "is-down" : "");
-        deltaEl.textContent = (d > 0 ? "▲ +" : d < 0 ? "▼ " : "= ") + d.toFixed(2) +
+        // Sin cambio no lleva clase: classList.add("") lanza excepción.
+        if (d > 0) deltaEl.classList.add("is-up");
+        else if (d < 0) deltaEl.classList.add("is-down");
+        deltaEl.textContent = (d > 0 ? "▲ +" + d.toFixed(2) : d < 0 ? "▼ " + d.toFixed(2) : "Sin cambio") +
           " vs. periodo anterior (" + money(prev) + ")";
       } else {
         deltaEl.textContent = "Sin periodo anterior para comparar";
@@ -1090,24 +1285,45 @@
   function destroy(name) { if (charts[name]) { charts[name].destroy(); charts[name] = null; } }
 
   function renderTrend() {
-    var ps = periods().slice().sort();
     var el = $("emptyTrend");
     destroy("trend");
-    if (ps.length < 2) {
+
+    /* Dos fuentes posibles: los periodos cargados en el padrón, o el archivo
+       de promedios diarios (historico.csv), que es el que crece solo con el
+       flujo diario sin inflar el repositorio. Gana el que tenga más historia. */
+    var ps = periods().slice().sort();
+    var hist = serieHistorica();
+    var usarHist = hist.fechas.length > ps.length;
+    var etiquetas = usarHist ? hist.fechas : ps;
+    var sub = $("trendSub");
+
+    if (etiquetas.length < 2) {
       el.hidden = false;
-      el.textContent = "Un solo periodo cargado. Agrega filas con otras fechas en la hoja para ver la evolución de los precios.";
+      el.textContent = historico.length
+        ? "El histórico tiene un solo corte. Cada corrida diaria del flujo agrega un punto a historico.csv y esta gráfica se llena sola."
+        : "Un solo periodo cargado. El flujo diario (o el parámetro --historico de xml_a_csv.py) irá construyendo la serie.";
+      if (sub) sub.textContent = "Promedio de cada producto en los periodos cargados.";
       return;
     }
     el.hidden = true;
+    if (sub) {
+      sub.textContent = usarHist
+        ? "Promedios diarios de historico.csv · ámbito " + hist.etiqueta + " · " + etiquetas.length + " cortes."
+        : "Promedio de cada producto en los periodos cargados en el padrón.";
+    }
+
     var t = chartTheme();
     var series = ["regular", "premium", "diesel"].map(function (p) {
       return {
         label: PRODUCTS[p].label,
-        data: ps.map(function (f) {
+        data: etiquetas.map(function (f) {
+          if (usarHist) {
+            var v = hist.puntos[p] && hist.puntos[p][f];
+            return v === undefined ? null : +v.toFixed(2);
+          }
           var rows = state.rows.filter(function (r) {
             if (r.fecha !== f) return false;
-            if (state.estado && r.estado !== state.estado) return false;
-            if (state.municipio && r.municipio !== state.municipio) return false;
+            if (!coincideGeo(r)) return false;
             if (state.onlyMine && !r._own) return false;
             return true;
           });
@@ -1122,7 +1338,7 @@
     opts.scales.y.beginAtZero = false;
     charts.trend = new Chart($("chartTrend"), {
       type: "line",
-      data: { labels: ps.map(fmtPeriod), datasets: series },
+      data: { labels: etiquetas.map(fmtPeriod), datasets: series },
       options: opts
     });
   }
@@ -1305,8 +1521,8 @@
     if (head) head.childNodes[0].nodeValue = "Δ " + PRODUCTS[p].label + " vs. local ";
     $("tableCount").textContent = list.length.toLocaleString("es-MX") + " estaciones listadas · " +
       (state.period ? fmtPeriod(state.period) : "todos los periodos") +
-      (state.municipio ? " · " + state.municipio : "") +
-      (state.estado ? " · " + state.estado : "") +
+      (state.municipio ? " · " + (state.municipio === SIN_UBICACION ? "sin municipio" : state.municipio) : "") +
+      (state.estado ? " · " + (state.estado === SIN_UBICACION ? "sin ubicación" : state.estado) : "") +
       (state.onlyMine ? " · solo mis estaciones" : "");
     $("pageInfo").textContent = "Página " + state.page + " de " + pages;
     $("prevPage").disabled = state.page <= 1;
@@ -1319,7 +1535,9 @@
       if (!sp) return '<td class="is-num na">N/D</td>';
       var signo = sp.valor > 0 ? "+" : sp.valor < 0 ? "−" : "";
       var clase = sp.valor < -0.005 ? "spread--bajo" : sp.valor > 0.005 ? "spread--alto" : "spread--par";
-      var tip = "Promedio " + (sp.ref.alcance === "nacional" ? "nacional" : sp.ref.alcance + " " + sp.ref.etiqueta) +
+      var tip = "Promedio " + (sp.ref.alcance === "nacional" ? "nacional"
+                             : sp.ref.alcance === "radio" ? "de " + sp.ref.etiqueta
+                             : sp.ref.alcance + " " + sp.ref.etiqueta) +
                 ": " + money(sp.ref.avg) + " (" + sp.ref.n.toLocaleString("es-MX") + " estaciones)";
       return '<td class="is-num"><span class="spread ' + clase + '" data-tip-title="' +
              (sp.valor < 0 ? "Por debajo del mercado local" : sp.valor > 0 ? "Por encima del mercado local" : "En el promedio local") +
@@ -1357,6 +1575,7 @@
     renderCompare(rows);
     renderHist(rows);
     renderTable(rows);
+    renderCompetencia(rows);
     renderSimulador();
     $("footerUpdated").textContent = state.updatedAt
       ? "Actualizado " + fmtDateTime(state.updatedAt) + " · origen: " + state.origin
@@ -1364,16 +1583,71 @@
   }
 
   /* ---------------------------------------------------------
+     9 bis. Monitoreo de competencia directa por marca
+     --------------------------------------------------------- */
+
+  function renderCompetencia(rows) {
+    var caja = $("compCards"), nota = $("compNote");
+    if (!caja) return;
+    var p = state.product;
+
+    var grupos = {};
+    rows.forEach(function (r) {
+      if (!r._marca || r[p] === null) return;
+      (grupos[r._marca] = grupos[r._marca] || []).push(r[p]);
+    });
+
+    var lista = Object.keys(grupos).map(function (k) {
+      return { marca: k, avg: avg(grupos[k]), n: grupos[k].length };
+    }).sort(function (a, b) { return a.avg - b.avg; });
+
+    var refBase = mercado.nacional["MX|" + p];
+    var refZona = null;
+    if (state.municipio && state.municipio !== SIN_UBICACION) {
+      refZona = mercado.municipio[state.estado + "»" + state.municipio + "|" + p];
+    } else if (state.estado && state.estado !== SIN_UBICACION) {
+      refZona = mercado.estado[state.estado + "|" + p];
+    }
+    var ref = refZona || refBase;
+
+    if (!lista.length) {
+      caja.innerHTML = '<p class="comp__empty">Ninguna de las marcas vigiladas aparece en la selección actual. ' +
+        'El padrón de la CNE publica la razón social, no la marca comercial: llena la columna <code>Marca</code> ' +
+        'en <code>catalogo_estaciones.csv</code> (o ajusta <code>MARCAS_COMPETENCIA</code> en config.js) para activarla.</p>';
+      if (nota) nota.textContent = "Promedio por marca en la selección activa.";
+      return;
+    }
+
+    caja.innerHTML = lista.map(function (d) {
+      var dif = ref ? d.avg - ref.avg : null;
+      var clase = dif === null ? "" : dif < -0.005 ? " comp__card--bajo" : dif > 0.005 ? " comp__card--alto" : "";
+      return '<div class="comp__card' + clase + '">' +
+        '<p class="comp__marca">' + esc(d.marca) + "</p>" +
+        '<p class="comp__precio">' + money(d.avg) + "</p>" +
+        '<p class="comp__pie">' + d.n.toLocaleString("es-MX") + (d.n > 1 ? " estaciones" : " estación") +
+          (dif === null ? "" : " · " + (dif >= 0 ? "+" : "−") + Math.abs(dif).toFixed(2) + " vs. zona") +
+        "</p></div>";
+    }).join("");
+
+    if (nota) {
+      nota.textContent = "Promedio de " + PRODUCTS[p].label + " por marca · " +
+        (refZona ? "comparado contra el promedio de la zona filtrada" : "comparado contra el promedio nacional del periodo") +
+        (ref ? " (" + money(ref.avg) + ")" : "");
+    }
+  }
+
+  /* ---------------------------------------------------------
      10 bis. Simulador táctico de precios
      --------------------------------------------------------- */
 
-  var sim = { permiso: "", precio: null };
+  var sim = { permiso: "", precio: null, busqueda: "" };
 
   /* Universo con el que compite la estación: su municipio si hay referencia,
      si no su estado y en último caso el país. */
   function universoLocal(r, prod) {
     var ref = referenciaLocal(r, prod);
     if (!ref) return { rows: [], ref: null };
+    if (ref.alcance === "radio" && ref.rows) return { rows: ref.rows, ref: ref };
     var base = periodRows().filter(function (x) { return x[prod] !== null; });
     if (ref.alcance === "municipio") {
       base = base.filter(function (x) { return x.estado === r.estado && x.municipio === r.municipio; });
@@ -1389,18 +1663,26 @@
     return n + 1;
   }
 
+  /* Cualquier estación del inventario es simulable. El cuadro de búsqueda
+     filtra por permiso CRE, razón social, municipio o dirección; sin búsqueda
+     se listan primero las propias. */
+  var SIM_MAX = 200;
+
   function candidatasSimulador() {
-    var propias = state.rows.filter(function (r) { return r._own; });
-    if (propias.length) return { rows: propias, propias: true };
-    var conUbic = state.rows.filter(function (r) { return r.estado; });
-    conUbic.sort(function (a, b) {
-      return String(a.estacion || a.permiso).localeCompare(String(b.estacion || b.permiso), "es");
-    });
-    return { rows: conUbic.slice(0, 300), propias: false };
+    var base = periodRows();
+    var q = slug(sim.busqueda || "");
+    var propias = base.filter(function (r) { return r._own; });
+
+    if (q) {
+      var hallados = base.filter(function (r) { return (r._s || "").indexOf(q) > -1; });
+      return { rows: hallados.slice(0, SIM_MAX), total: hallados.length, filtrado: true, propias: false };
+    }
+    if (propias.length) return { rows: propias, total: propias.length, filtrado: false, propias: true };
+    return { rows: base.slice(0, SIM_MAX), total: base.length, filtrado: false, propias: false };
   }
 
   function renderSimulador() {
-    var selec = $("simStation"), salida = $("simResult");
+    var selec = $("simStation"), salida = $("simResult"), pista = $("simHint");
     if (!selec || !salida) return;
 
     var cand = candidatasSimulador();
@@ -1408,21 +1690,31 @@
     selec.innerHTML = "";
 
     if (!cand.rows.length) {
-      selec.appendChild(new Option("Sin estaciones con ubicación conocida", ""));
+      selec.appendChild(new Option("Sin coincidencias", ""));
       selec.disabled = true;
       $("simPrice").disabled = true;
-      salida.innerHTML = '<p class="sim__empty">Para simular hace falta saber dónde compite la estación. ' +
-        'Captura Estado y Municipio en <code>catalogo_estaciones.csv</code> y, si son tuyas, sus permisos ' +
-        'en <code>MIS_ESTACIONES</code> dentro de <code>config.js</code>.</p>';
+      salida.innerHTML = '<p class="sim__empty">La búsqueda no encontró estaciones. Prueba con el permiso CRE ' +
+        '(por ejemplo <code>PL/9998</code>), la razón social o el municipio.</p>';
+      if (pista) pista.textContent = "";
       return;
     }
 
     selec.disabled = false;
     $("simPrice").disabled = false;
     cand.rows.forEach(function (r) {
-      var etiqueta = (r.estacion || r.permiso) + (r.municipio ? " · " + r.municipio : r.estado ? " · " + r.estado : "");
-      selec.appendChild(new Option(etiqueta, r.permiso));
+      var donde = r.municipio ? " · " + r.municipio : r.estado ? " · " + r.estado : " · sin ubicación";
+      selec.appendChild(new Option((r.estacion || r.permiso) + donde + (r._own ? " ★" : ""), r.permiso));
     });
+
+    if (pista) {
+      pista.textContent = cand.filtrado
+        ? cand.total.toLocaleString("es-MX") + " coincidencia(s)" + (cand.total > SIM_MAX ? " · se listan las primeras " + SIM_MAX : "")
+        : cand.propias
+          ? cand.total + " estación(es) propia(s) · escribe arriba para buscar cualquier otra"
+          : "Se listan las primeras " + Math.min(SIM_MAX, cand.total).toLocaleString("es-MX") +
+            " de " + cand.total.toLocaleString("es-MX") + " · escribe arriba para buscar una en particular";
+    }
+
     if (previo && cand.rows.some(function (r) { return r.permiso === previo; })) selec.value = previo;
     else { sim.permiso = cand.rows[0].permiso; sim.precio = null; selec.value = sim.permiso; }
 
@@ -1443,7 +1735,7 @@
 
     if (r[prod] === null) {
       salida.innerHTML = '<p class="sim__empty">Esta estación no reporta ' + PRODUCTS[prod].label +
-        ' en el periodo. Cambia de producto en los controles superiores.</p>';
+        ' en el periodo. Cambia de producto en los controles superiores o elige otra estación.</p>';
       $("simPrice").value = "";
       return;
     }
@@ -1463,23 +1755,32 @@
     var lugarSim = lugar(sim.precio, otros);
     var barata = otros.length ? Math.min.apply(null, otros) : actual;
     var promedio = uni.ref ? uni.ref.avg : actual;
-    var ambito = uni.ref ? (uni.ref.alcance === "nacional" ? "el país" :
-                            uni.ref.alcance === "estado" ? uni.ref.etiqueta : uni.ref.etiqueta) : "la zona";
+    // Frase preposicional lista para insertar: "del país", "de Jalisco", "de Zapopan".
+    var ambito = !uni.ref ? "de la zona"
+               : uni.ref.alcance === "nacional" ? "del país"
+               : uni.ref.alcance === "radio" ? "en " + uni.ref.etiqueta
+               : "de " + uni.ref.etiqueta;
 
     var delta = sim.precio - actual;
     var movimiento;
     if (lugarSim === lugarActual) {
-      movimiento = "Conservarías el lugar <strong>" + lugarActual + "</strong> de " + total + " en " + esc(ambito) + ".";
+      movimiento = "Conservarías el lugar <strong>" + lugarActual + "</strong> de " +
+                   total.toLocaleString("es-MX") + " " + esc(ambito) + ".";
     } else if (lugarSim < lugarActual) {
       movimiento = "Pasarías del lugar <strong>" + lugarActual + "</strong> al <strong>" + lugarSim +
-                   "</strong> más económico de " + esc(ambito) + ".";
+                   "</strong> más económico " + esc(ambito) + ".";
     } else {
       movimiento = "Caerías del lugar <strong>" + lugarActual + "</strong> al <strong>" + lugarSim +
-                   "</strong> de " + total + " en " + esc(ambito) + ".";
+                   "</strong> de " + total.toLocaleString("es-MX") + " " + esc(ambito) + ".";
     }
 
     var vsBarata = sim.precio - barata;
     var vsProm = sim.precio - promedio;
+    var ambitoTexto = !uni.ref ? "la zona"
+                    : uni.ref.alcance === "radio" ? uni.ref.etiqueta
+                    : uni.ref.alcance === "municipio" ? "el municipio de " + uni.ref.etiqueta
+                    : uni.ref.alcance === "estado" ? "el estado de " + uni.ref.etiqueta
+                    : "todo el país";
 
     salida.innerHTML =
       '<p class="sim__verdict">' + movimiento + "</p>" +
@@ -1489,20 +1790,27 @@
                 (delta === 0 ? "sin cambio" : (delta > 0 ? "+" : "−") + Math.abs(delta).toFixed(2) + " respecto al actual"),
                 delta > 0 ? "alto" : delta < 0 ? "bajo" : "") +
         tarjeta("Contra la más barata", (vsBarata >= 0 ? "+" : "−") + Math.abs(vsBarata).toFixed(2),
-                "la más económica de " + ambito + " está en " + money(barata),
+                "la más económica " + ambito + " está en " + money(barata),
                 vsBarata > 0 ? "alto" : "bajo") +
         tarjeta("Contra el promedio", (vsProm >= 0 ? "+" : "−") + Math.abs(vsProm).toFixed(2),
-                "promedio " + (uni.ref ? uni.ref.alcance : "local") + " " + money(promedio) +
+                "promedio de " + ambitoTexto + " " + money(promedio) +
                 " · " + total.toLocaleString("es-MX") + " estaciones",
                 vsProm > 0 ? "alto" : "bajo") +
+        tarjeta("Margen proyectado", (delta >= 0 ? "+" : "−") + Math.abs(delta).toFixed(2) + " $/L",
+                delta === 0 ? "sin cambio respecto al precio actual"
+                            : (delta > 0 ? "ganas" : "cedes") + " " + Math.abs(delta).toFixed(2) +
+                              " por litro vendido frente al precio de hoy",
+                delta > 0 ? "alto" : delta < 0 ? "bajo" : "") +
       "</div>" +
-      (uni.ref && uni.ref.alcance !== "municipio"
-        ? '<p class="sim__nota">Sin municipio confirmado, la comparación se hace contra ' +
-          (uni.ref.alcance === "estado" ? "todo el estado de " + esc(uni.ref.etiqueta) : "el promedio nacional") +
-          ", que es una referencia más amplia que el mercado real de la estación.</p>"
+      (uni.ref && uni.ref.alcance !== "municipio" && uni.ref.alcance !== "radio"
+        ? '<p class="sim__nota">Esta estación no tiene competidores identificados en su municipio, así que ' +
+          "el ranking se calcula contra " +
+          (uni.ref.alcance === "estado" ? "todo el estado de " + esc(uni.ref.etiqueta) : "el padrón nacional") +
+          ". Es una referencia más amplia que su mercado real: captura Estado y Municipio en el catálogo para afinarla.</p>"
         : "") +
-      (avisoAjeno ? '<p class="sim__nota">Esta estación no está declarada como propia. Captura tus permisos CRE en ' +
-        '<code>MIS_ESTACIONES</code> (config.js) para que el simulador abra con las tuyas.</p>' : "");
+      (avisoAjeno ? '<p class="sim__nota">Esta estación no está declarada como propia (las tuyas aparecen con ★). ' +
+        'Captura tus permisos CRE en <code>MIS_ESTACIONES</code> dentro de <code>config.js</code> para que el ' +
+        'simulador abra directamente con ellas.</p>' : "");
 
     function tarjeta(titulo, valor, pie, tono) {
       return '<div class="sim__card' + (tono ? " sim__card--" + tono : "") + '">' +
@@ -1521,7 +1829,7 @@
     var filas = tableRows(scoped());
     if (!filas.length) return;
 
-    var cab = ["Fecha", "Permiso CRE", "Estacion", "Municipio", "Estado", "Origen ubicacion",
+    var cab = ["Fecha", "Permiso CRE", "Estacion", "Marca", "Municipio", "Estado", "Origen ubicacion",
                "Direccion", "Regular", "Premium", "Diesel",
                "Producto analizado", "Promedio local", "Alcance del promedio",
                "Diferencial vs promedio local", "Posicion comercial", "Sucursal propia"];
@@ -1532,8 +1840,8 @@
       var pos = !sp ? "" : sp.valor < -0.005 ? "Por debajo del promedio local"
                         : sp.valor > 0.005 ? "Por encima del promedio local" : "En el promedio local";
       lineas.push([
-        r.fecha, r.permiso, r.estacion, r.municipio, r.estado,
-        r.estado ? (r.inferido ? "Inferido del domicilio" : "Catálogo") : "",
+        r.fecha, r.permiso, r.estacion, r.marca || r._marca, r.municipio, r.estado,
+        r.estado ? (r.asignado ? "Asignado por omisión" : r.inferido ? "Inferido del domicilio" : "Catálogo") : "",
         r.direccion,
         r.regular === null ? "" : r.regular.toFixed(2),
         r.premium === null ? "" : r.premium.toFixed(2),
@@ -1637,6 +1945,15 @@
 
     $("simStation").addEventListener("change", function () {
       sim.permiso = this.value; sim.precio = null; calcularSimulacion();
+    });
+
+    var tSim = null;
+    $("simSearch").addEventListener("input", function () {
+      var v = this.value;
+      clearTimeout(tSim);
+      tSim = setTimeout(function () {
+        sim.busqueda = v; sim.permiso = ""; sim.precio = null; renderSimulador();
+      }, CFG.SEARCH_DEBOUNCE_MS === undefined ? 180 : CFG.SEARCH_DEBOUNCE_MS);
     });
 
     $("simPrice").addEventListener("input", function () {

@@ -175,8 +175,16 @@ de Google Sheets.
 `actualizar-datos.yml` hace lo mismo desde el repositorio: descarga el XML, corre `xml_a_csv.py` y
 publica `fallback.csv` con un commit diario.
 
-1. El archivo ya está en `.github/workflows/actualizar-datos.yml`. **Esa ruta la impone GitHub**;
-   es la única carpeta del proyecto y el resto del repositorio se mantiene plano.
+1. El flujo ya viene en `.github/workflows/actualizar-datos.yml`, que es la ruta que exige GitHub.
+   Si subes el proyecto arrastrando carpetas en la web, esa carpeta **no se sube** (el navegador
+   ignora las que empiezan con punto): usa `git push`, o créala con **Add file → Create new file**
+   escribiendo la ruta completa como nombre.
+
+   > **Si aparece "No event triggers defined in `on`"**, el pegado perdió la sangría: en YAML las dos
+   > líneas bajo `"on":` deben ir indentadas. Abre el archivo en GitHub, pulsa el lápiz, borra todo
+   > y vuelve a pegar el contenido completo sin reindentar nada. El archivo trae `"on"` entre
+   > comillas justamente para evitar que algunos editores lo interpreten como el valor booleano
+   > verdadero en lugar de como el nombre del bloque de disparadores.
 2. **Settings → Secrets and variables → Actions → Variables**: crea `URL_XML` con la ruta vigente
    del XML de la CNE.
 3. **Settings → Actions → General → Workflow permissions**: marca *Read and write permissions*.
@@ -255,15 +263,16 @@ actualiza solo en la siguiente lectura.
 ├── fallback.csv                        Respaldo local: padrón nacional de 13,825 estaciones
 ├── catalogo_estaciones.csv             Permiso CRE → razón social y dirección (175 estaciones)
 ├── xml_a_csv.py                        Convierte el XML oficial a CSV limpio y enriquecido
+├── historico.csv                       Promedios diarios por ámbito y producto (gráfica de tendencia)
 ├── AppsScript.gs                       Ingesta diaria del XML a Google Sheets
 └── .github/
     └── workflows/
-        └── actualizar-datos.yml        Ingesta diaria del XML desde GitHub Actions
+        └── actualizar-datos.yml        Ingesta diaria automática desde GitHub Actions
 ```
 
-Todo el proyecto vive en la raíz —`index.html` en el primer nivel, que es lo que GitHub Pages
-espera para servir desde `/ (root)`— salvo `.github/workflows/`, la única carpeta, y la impone
-GitHub para los flujos de Actions.
+Todo vive en la raíz —`index.html` en el primer nivel, que es lo que GitHub Pages espera para
+servir desde `/ (root)`— salvo `.github/workflows/`, la única carpeta, y la impone GitHub para los
+flujos de Actions.
 
 El tablero interpreta CSV y XML sin dependencias adicionales: el XML se lee con `DOMParser`,
 que ya trae el navegador. Dependencias por CDN: PapaParse 5.4.1 (lectura de CSV), Chart.js 4.4.1 (gráficos) y Google Fonts
@@ -302,8 +311,9 @@ MIS_ESTACIONES: {
 }
 ```
 
-Los permisos son la vía confiable: en el padrón de la CNE la razón social suele ser la sociedad
-mercantil, no la marca comercial, así que un patrón por nombre puede no encontrar nada.
+**Los permisos son la única vía confiable.** Comprobado contra el catálogo nacional completo: no
+existe ninguna razón social que contenga "LB GAS", y "Servicio Bautista" solo coincide con
+`PL/4799/EXP/ES/2015`, una estación de Oaxaca que no es tuya. Por eso `patrones` viene vacío.
 
 ---
 
@@ -313,6 +323,10 @@ mercantil, no la marca comercial, así que un patrón por nombre puede no encont
 
 Sustituyen al antiguo selector único de Región. El municipio solo lista los del estado elegido, y
 ambos se alimentan de las columnas `Estado` y `Municipio` del catálogo.
+
+Los selectores **nunca se deshabilitan**: las estaciones sin ubicación se agrupan en una opción
+propia, *Sin ubicación (n)*, que también funciona como filtro. Así puedes aislar exactamente las que
+faltan por catalogar.
 
 **Cuando el catálogo no trae ubicación**, el tablero intenta deducirla del domicilio, pero solo
 acepta la coincidencia si aparece donde un domicilio mexicano realmente codifica la localidad:
@@ -332,6 +346,24 @@ en la exportación. **La ruta confiable es llenar `Estado` y `Municipio` en
 
 Para ampliar la cobertura del motor, agrega entradas al diccionario `MUNICIPIOS` en `app.js`
 (clave en minúsculas y sin acentos, valor el estado).
+
+`config.js` incluye `ESTADO_POR_DEFECTO` para asignar un estado a todo lo que quede sin ubicación.
+Viene vacío a propósito: si lo llenas, las ~13,650 estaciones sin dato caen bajo ese estado y el
+"promedio estatal" contra el que se mide el semáforo deja de ser el de tu plaza para volverse el
+nacional disfrazado. Lo asignado se exporta marcado como *Asignado por omisión*.
+
+### Mercado local: radio, municipio, estado, país
+
+El promedio contra el que se mide cada estación se elige en este orden, quedándose en el primero que
+tenga al menos dos estaciones:
+
+1. **Radio** — cuando el catálogo trae `Lat` y `Lon`. `RADIO_KM` en `config.js` (5 km por omisión;
+   3–5 en zona urbana, 15–25 en carretera). Es la definición más fiel de competencia: quien está a
+   pocos kilómetros, sin importar el límite municipal. Se indexa en una rejilla espacial para no
+   comparar cada estación contra las 13,800 restantes.
+2. **Municipio** → 3. **Estado** → 4. **Nacional**.
+
+El tooltip de cada diferencial dice qué universo se usó y con cuántas estaciones.
 
 ### Semáforo comercial y diferencial vs. promedio local
 
@@ -353,15 +385,31 @@ ninguna identificada, y el conteo junto al interruptor te dice cuántas reconoci
 
 ### Simulador táctico de precios
 
-Panel colapsable. Eliges una de tus estaciones, mueves el precio con los botones de ±0.10 y ±0.20 o
-escribes uno, y responde al instante:
+Panel colapsable. El buscador acepta **cualquier estación del padrón** —por permiso CRE (`PL/...` o
+`CNE/PL/...`), razón social, municipio o dirección—; sin búsqueda abre con las tuyas, marcadas con ★.
+Mueves el precio con los botones de ±0.10 y ±0.20 o escribes uno, y responde al instante:
 
 - cómo cambia su lugar en el ranking del municipio — *"Pasarías del lugar 4 al 2 más económico de
   Zapopan"*;
-- la brecha resultante contra la estación más barata de la zona y contra el promedio local.
+- la brecha resultante contra la estación más barata de la zona y contra el promedio local;
+- el **margen proyectado** en $/L: cuánto ganas o cedes por litro vendido frente al precio de hoy.
 
 La estación no compite consigo misma: se excluye del ranking antes de calcular. Si el municipio no
 está confirmado, el panel avisa que la comparación se hizo contra un universo más amplio.
+
+### Competencia directa por marca
+
+Tarjetas con el precio promedio de las marcas vigiladas (`MARCAS_COMPETENCIA` en `config.js`) dentro
+de la selección activa, ordenadas de más barata a más cara y contrastadas contra el promedio de la
+zona filtrada. La marca se reconoce por la columna `Marca` del catálogo y, en su defecto, por la
+razón social, **siempre por palabra completa**.
+
+Esa última precisión no es cosmética: buscar por subcadena convertía cada *INMOBILIARIA* en una
+estación Mobil (166 falsos positivos) y marcaba a *MARCOFAN* como Arco. Aun con palabra completa, el
+catálogo de la CNE publica la sociedad mercantil y no la bandera, así que quedan casos irreducibles
+como *Servicio Ciudad Pemex* (un municipio de Tabasco) u *Honestidad Total*. La lista por omisión se
+limita a marcas que operan con razón social propia; para una vigilancia seria, llena la columna
+`Marca` en `catalogo_estaciones.csv`.
 
 ### Exportador de la vista filtrada
 
@@ -369,6 +417,77 @@ El botón **Exportar vista** genera un CSV con lo que estás viendo —filtros, 
 incluidos— más las columnas calculadas: promedio local, alcance del promedio, diferencial, posición
 comercial, origen de la ubicación y si es sucursal propia. Lleva BOM UTF-8, así que Excel respeta
 los acentos, y el nombre del archivo recoge producto, periodo y filtros.
+
+---
+
+### Los dos archivos de datos y por qué son dos
+
+| Archivo | Qué contiene | Tamaño por corte | Para qué sirve |
+|---|---|---|---|
+| `fallback.csv` | Padrón completo: una fila por estación | ~750 KB (13,825 filas) | Tabla, KPIs, dispersión, semáforo, simulador |
+| `historico.csv` | Promedios por ámbito y producto | ~3 KB | Gráfica de tendencia y delta de las KPIs |
+
+El flujo diario acumula en los dos, pero con ventanas distintas: `--conservar 3` para el padrón y
+`--historico-conservar 120` para los promedios. La razón es aritmética: guardar 60 cortes completos
+serían unos 45 MB que el navegador tendría que descargar y recorrer en cada carga, mientras que 120
+cortes de promedios pesan menos de 400 KB. La tendencia solo necesita promedios, así que ahí es
+donde vive la memoria larga del tablero.
+
+Si prefieres la serie completa por estación, sube `--conservar` y apunta `FALLBACK_CSV` al archivo
+acumulado; el tablero usa los periodos del padrón cuando tiene más historia que `historico.csv`.
+
+### Ejecutar el pipeline a mano con acumulación
+
+```bash
+python3 xml_a_csv.py precios_del_dia.xml \
+        --catalogo catalogo_estaciones.csv \
+        --salida fallback.csv --acumular --conservar 3 \
+        --historico historico.csv --historico-conservar 120
+```
+
+Si la fecha del XML ya está cargada, no duplica nada y lo dice en la salida.
+
+### Catálogo desde el XML de estaciones de la CNE
+
+El mismo servicio que publica los precios publica el catálogo de estaciones:
+
+```bash
+curl -fsSL -o places.xml "https://publicacionexterna.azurewebsites.net/publicaciones/places"
+
+python3 xml_a_csv.py precios_del_dia.xml \
+        --catalogo places.xml \
+        --exportar-catalogo catalogo_estaciones.csv \
+        --salida fallback.csv
+```
+
+Eso convierte el XML de estaciones en tu `catalogo_estaciones.csv` y puede llevarte de 175 permisos
+identificados a casi 14,000, de golpe.
+
+**Probado contra el archivo real** (edición del 18 de agosto de 2026): 15,034 estaciones, todas con
+razón social y 15,029 con coordenadas. El cruce contra el padrón de precios da **13,825 de 13,825**.
+
+El esquema publicado es:
+
+```xml
+<places>
+  <place place_id="2039">
+    <name>ESTACION HIPODROMO SA DE CV</name>
+    <cre_id>PL/658/EXP/ES/2015</cre_id>
+    <location><x>-116.9214</x><y>32.47641</y></location>
+  </place>
+</places>
+```
+
+No incluye domicilio, municipio ni estado: **solo razón social y coordenadas**. Por eso el mercado
+local se calcula por radio (sección 8) y las columnas `Estado` y `Municipio` del catálogo siguen
+disponibles para que las llenes si las necesitas para los filtros.
+
+El lector es tolerante con el esquema por si cambia: recorre cualquier elemento que contenga una
+cadena con forma de permiso —en atributo o en hijo— y toma nombre, domicilio, municipio, estado y
+coordenadas de los hijos o atributos cuya etiqueta lo sugiera, ignorando espacios de nombres,
+mayúsculas, acentos y guiones bajos (`CreId`, `cre_id` y `{ns}CRE-ID` son la misma clave). El patrón
+de permiso cubre las cinco variantes observadas: `EXP/ES`, `EXP/ESA` (autoconsumo), `EXP/ES/MM`,
+`TRA/OM` y el prefijo `CNE/` de los permisos emitidos desde 2025.
 
 ---
 
@@ -396,17 +515,19 @@ importadoras incluye el margen al mayoreo e incluye descuentos en TAR.
 ### Actualizar los datos (modalidad local)
 
 ```bash
-# 1. Descarga el XML del día desde el portal de la CNE (o con curl si ya tienes la ruta)
-curl -fsSL -o precios_del_dia.xml "URL_DEL_XML"
+# 1. Descarga el XML del día
+curl -fsSL -o precios_del_dia.xml "https://publicacionexterna.azurewebsites.net/publicaciones/prices"
 
-# 2. Conviértelo al CSV que lee el tablero
-python3 xml_a_csv.py precios_del_dia.xml --catalogo catalogo_estaciones.csv
+# 2. Conviértelo y acumula la serie
+python3 xml_a_csv.py precios_del_dia.xml --catalogo catalogo_estaciones.csv \
+        --salida fallback.csv --acumular --conservar 3 \
+        --historico historico.csv --historico-conservar 120
 
 # 3. Revísalo en local antes de publicar
 python3 -m http.server 8000    # abre http://localhost:8000
 
 # 4. Publica
-git add fallback.csv
+git add fallback.csv historico.csv
 git commit -m "Precios $(date +%F)"
 git push
 ```
