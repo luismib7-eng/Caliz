@@ -1,26 +1,9 @@
-# =============================================================
-#  Actualización diaria de precios (modalidad GitHub Actions)
-#
-#  GitHub solo ejecuta los flujos que viven en .github/workflows/,
-#  así que este archivo debe copiarse a:
-#      .github/workflows/actualizar-datos.yml
-#  Es la única carpeta del proyecto, y la impone GitHub: el resto
-#  del repositorio se mantiene plano.
-#
-#  Antes de activarlo:
-#    1. Settings → Secrets and variables → Actions → Variables
-#       Crea la variable URL_XML con la ruta vigente del XML de la CNE.
-#    2. Settings → Actions → General → Workflow permissions:
-#       marca "Read and write permissions".
-# =============================================================
-
 name: Actualizar precios de combustibles
 
-on:
+"on":
+  workflow_dispatch: {}
   schedule:
-    # 13:00 UTC ≈ 07:00 en el centro de México
     - cron: "0 13 * * *"
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -41,10 +24,7 @@ jobs:
         run: curl -fsSL --retry 3 -o precios_del_dia.xml "${{ vars.URL_XML }}"
 
       - name: Convertir a CSV
-        run: |
-          python3 xml_a_csv.py precios_del_dia.xml \
-                  --catalogo catalogo_estaciones.csv \
-                  --salida fallback.csv
+        run: python3 xml_a_csv.py precios_del_dia.xml --catalogo catalogo_estaciones.csv --salida fallback.csv
 
       - name: Publicar si hubo cambios
         run: |
@@ -58,3 +38,19 @@ jobs:
           git add fallback.csv
           git commit -m "Precios $(date -u +%Y-%m-%d)"
           git push
+
+# ---------------------------------------------------------------
+#  NOTAS (van al final para que nada estorbe al pegar el archivo)
+#
+#  Ruta obligatoria dentro del repositorio:
+#      .github/workflows/actualizar-datos.yml
+#
+#  Antes de la primera corrida:
+#    1. Settings > Secrets and variables > Actions > Variables
+#       Crea URL_XML con la ruta directa del XML de la CNE.
+#    2. Settings > Actions > General > Workflow permissions:
+#       marca "Read and write permissions".
+#
+#  Prueba manual: pestaña Actions > el flujo > Run workflow.
+#  El horario 13:00 UTC equivale a las 07:00 del centro de Mexico.
+# ---------------------------------------------------------------
