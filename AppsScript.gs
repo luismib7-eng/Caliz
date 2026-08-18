@@ -28,8 +28,10 @@ var CONFIG = {
   URL_XML: 'https://www.cne.gob.mx/media/precios/precios.xml', // Confirma la ruta vigente en el portal
   HOJA_PRECIOS: 'Precios',
   HOJA_CATALOGO: 'Catalogo',
-  PRECIO_MIN: 5,     // El XML publica 0.01 o 1.00 cuando la estación no reportó precio
-  PRECIO_MAX: 60,
+  PRECIO_MIN: 15,    // El XML publica 0.01 o 1.00 cuando la estación no reportó precio
+  PRECIO_MAX: 45,
+  SIN_DATO: 'No especificado',   // Evita comas nulas consecutivas en el CSV publicado
+  BLOQUE: 5000,                  // Filas por setValues, para no agotar el tiempo de ejecución
   ENCABEZADOS: ['Fecha', 'Region', 'Estado', 'Municipio', 'Estacion',
                 'Permiso CRE', 'Direccion', 'Regular', 'Premium', 'Diesel']
 };
@@ -73,29 +75,51 @@ function actualizarPrecios() {
       precios[tipo] = valor;
     }
 
-    if (vistos[permiso] !== undefined) {
+    var clave = clavePermiso_(permiso);
+    if (vistos[clave] !== undefined) {
       repetidos++;
-      var previa = filas[vistos[permiso]];
+      var previa = filas[vistos[clave]];
       if (previa[7] === '' && precios.regular !== '') previa[7] = precios.regular;
       if (previa[8] === '' && precios.premium !== '') previa[8] = precios.premium;
       if (previa[9] === '' && precios.diesel !== '') previa[9] = precios.diesel;
       continue;
     }
 
-    var c = catalogo[permiso] || {};
-    vistos[permiso] = filas.length;
-    filas.push([fecha, c.region || '', c.estado || '', c.municipio || '', c.estacion || '',
+    var c = catalogo[permiso.replace(/\s+/g, '').toUpperCase()] || catalogo[clave] || {};
+    vistos[clave] = filas.length;
+    filas.push([fecha,
+                c.region || CONFIG.SIN_DATO,
+                c.estado || CONFIG.SIN_DATO,
+                c.municipio || CONFIG.SIN_DATO,
+                c.estacion || '',
                 permiso, c.direccion || '', precios.regular, precios.premium, precios.diesel]);
   }
 
   if (!filas.length) throw new Error('El XML no produjo filas.');
 
-  hoja.getRange(hoja.getLastRow() + 1, 1, filas.length, CONFIG.ENCABEZADOS.length).setValues(filas);
+  // Escritura por bloques: un solo setValues con ~13,800 filas es viable, pero
+  // dividirlo mantiene el margen frente al límite de 6 minutos de ejecución.
+  var fila = hoja.getLastRow() + 1;
+  for (var b = 0; b < filas.length; b += CONFIG.BLOQUE) {
+    var lote = filas.slice(b, b + CONFIG.BLOQUE);
+    hoja.getRange(fila + b, 1, lote.length, CONFIG.ENCABEZADOS.length).setValues(lote);
+    SpreadsheetApp.flush();
+  }
   Logger.log('Periodo ' + fecha + ': ' + filas.length + ' estaciones agregadas · ' +
              repetidos + ' permisos repetidos fusionados · ' + descartados + ' precios fuera de rango.');
 }
 
-/** Indexa la hoja "Catalogo" por permiso CRE. */
+/**
+ * Clave canónica del permiso: mayúsculas, sin espacios y sin el prefijo 'CNE/'
+ * que la Comisión adoptó en 2025. Permite cruzar catálogos capturados con una
+ * u otra convención y detectar permisos repetidos escritos distinto.
+ */
+function clavePermiso_(permiso) {
+  var k = String(permiso || '').replace(/\s+/g, '').toUpperCase();
+  return k.indexOf('CNE/') === 0 ? k.substring(4) : k;
+}
+
+/** Indexa la hoja "Catalogo" por permiso literal y por clave canónica. */
 function leerCatalogo_(libro) {
   var hoja = libro.getSheetByName(CONFIG.HOJA_CATALOGO);
   var idx = {};
@@ -119,15 +143,18 @@ function leerCatalogo_(libro) {
   var cReg = col(['region', 'región']);
 
   for (var r = 1; r < datos.length; r++) {
-    var permiso = String(datos[r][cPermiso] || '').trim();
+    var permiso = String(datos[r][cPermiso] || '').replace(/\s+/g, '').toUpperCase();
     if (!permiso) continue;
-    idx[permiso] = {
+    var registro = {
       estacion: cEst > -1 ? String(datos[r][cEst] || '').trim() : '',
       direccion: cDir > -1 ? String(datos[r][cDir] || '').trim() : '',
       municipio: cMun > -1 ? String(datos[r][cMun] || '').trim() : '',
       estado: cEdo > -1 ? String(datos[r][cEdo] || '').trim() : '',
       region: cReg > -1 ? String(datos[r][cReg] || '').trim() : ''
     };
+    if (!idx[permiso]) idx[permiso] = registro;
+    var canon = clavePermiso_(permiso);
+    if (!idx[canon]) idx[canon] = registro;
   }
   return idx;
 }

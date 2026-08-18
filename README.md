@@ -37,14 +37,21 @@ el proyecto trabaja con dos piezas separadas:
 El tablero cruza ambos por el número de permiso. Las estaciones sin coincidencia en el catálogo se
 muestran identificadas por su permiso y siguen contando en promedios, mínimos y máximos.
 
-### Rutas para alimentar el tablero
+### Arquitectura dual de datos
 
-1. **Google Sheets (recomendada).** Un Apps Script descarga el XML cada día, lo convierte en filas y
-   las agrega a la hoja; el tablero lee el CSV publicado. Es la única ruta que construye historia y
-   la única inmune al bloqueo CORS. Ver la sección 3.
-2. **XML dentro del repositorio.** Copia el archivo junto a los demás y apunta `XML_URL` a él. El tablero lo
-   interpreta directamente; sirve para un corte fijo, sin serie histórica.
-3. **Conversión local a CSV.** `xml_a_csv.py` genera el CSV ya limpio y enriquecido.
+El tablero recorre las fuentes en orden y se queda con la primera que responda. Si la primaria falla
+—red caída, hoja despublicada— pasa sola a la siguiente sin dejar la pantalla en blanco, y el
+indicador del encabezado cambia a **Respaldo local** para que la degradación sea visible.
+
+| Orden | Variable en `config.js` | Modalidad | Construye historia |
+|---|---|---|---|
+| 1 | `SHEET_CSV_URL` | **Cloud (primaria).** Google Sheets alimentado a diario por `AppsScript.gs` | Sí |
+| 2 | `CSV_URL` | CSV remoto ya procesado (GitHub Actions u otro servidor) | Solo si acumulas periodos |
+| 3 | `XML_URL` | XML oficial alojado en el repositorio, interpretado por el navegador | No |
+| 4 | `FALLBACK_CSV` | **Local (secundaria).** `fallback.csv` generado por `xml_a_csv.py` | Solo si acumulas periodos |
+
+La modalidad Cloud es la recomendada: es la única que acumula la serie histórica sin intervención y
+la única inmune al bloqueo CORS. La local sirve como respaldo permanente y para trabajar sin Google.
 
 > **El navegador no puede leer el XML directamente del servidor de la CNE.** El portal no envía la
 > cabecera `Access-Control-Allow-Origin`, así que apuntar `XML_URL` a `https://www.cne.gob.mx/...`
@@ -54,7 +61,7 @@ muestran identificadas por su permiso y siguen contando en promedios, mínimos y
 
 ```bash
 python3 xml_a_csv.py precios_2026-08-17.xml --catalogo catalogo_estaciones.csv
-# → precios_2026-08-17.csv
+# → fallback.csv
 
 # Para acumular varios días en un mismo archivo histórico:
 python3 xml_a_csv.py precios_2026-08-18.xml \
@@ -68,12 +75,12 @@ Tanto el script como el tablero aplican las mismas dos reglas, así que los núm
 sin importar la ruta que uses:
 
 - **Precios fuera de rango.** El XML publica `0.01` o `1.00` cuando la estación no reportó precio.
-  Se descartan los valores fuera de `PRICE_MIN`–`PRICE_MAX` (por omisión $5–$60) para que no
+  Se descartan los valores fuera de `PRICE_MIN`–`PRICE_MAX` (por omisión $15–$45) para que no
   distorsionen promedios ni el mínimo del periodo.
 - **Permisos repetidos.** Se conserva el primer registro y solo se completan los productos que le
   falten. En el corte del 17 de agosto de 2026 esto afectó a 35 permisos con precios contradictorios.
 
-En ese mismo corte: 13,860 estaciones en el XML, 13,825 filas útiles, 16 precios descartados. Los
+En ese mismo corte: 13,860 estaciones en el XML, 13,825 filas útiles, 18 precios descartados. Los
 promedios resultantes ($23.69 Regular, $28.51 Premium, $27.02 Diésel) coinciden con los publicados
 por Profeco para el periodo, lo que confirma que el criterio de limpieza es el adecuado.
 
@@ -156,8 +163,22 @@ Si dejas `SHEET_CSV_URL` vacía, el tablero usa `XML_URL` y, en su defecto, `FAL
 5. Ejecuta `instalarDisparadorDiario` una sola vez: a partir de ahí corre solo cada mañana.
 
 Cada corrida **agrega** el periodo nuevo sin borrar los anteriores, y si la fecha ya estaba cargada
-no duplica nada. Como son ~13,800 filas por día, ejecuta `conservarUltimosPeriodos(60)` de vez en
-cuando para no acercarte al límite de 10 millones de celdas de Google Sheets.
+no duplica nada. La escritura se hace por bloques de 5,000 filas con `setValues()` para mantener el
+margen frente al límite de seis minutos de ejecución. Como son ~13,800 filas por día, ejecuta
+`conservarUltimosPeriodos(60)` de vez en cuando para no acercarte al límite de 10 millones de celdas
+de Google Sheets.
+
+### Automatizar sin Google: GitHub Actions
+
+`actualizar-datos.yml` hace lo mismo desde el repositorio: descarga el XML, corre `xml_a_csv.py` y
+publica `fallback.csv` con un commit diario.
+
+1. Copia el archivo a `.github/workflows/actualizar-datos.yml`. **Esa ruta la impone GitHub**; es la
+   única carpeta del proyecto y el resto del repositorio se mantiene plano.
+2. **Settings → Secrets and variables → Actions → Variables**: crea `URL_XML` con la ruta vigente
+   del XML de la CNE.
+3. **Settings → Actions → General → Workflow permissions**: marca *Read and write permissions*.
+4. Pruébalo a mano desde la pestaña **Actions → Run workflow**.
 
 ---
 
@@ -167,9 +188,11 @@ cuando para no acercarte al límite de 10 millones de celdas de Google Sheets.
 |---|---|
 | `SHEET_CSV_URL` | CSV publicado de Google Sheets. Tiene prioridad sobre las demás fuentes. |
 | `XML_URL` | XML oficial (usa una copia en el repositorio; ver la advertencia de CORS). |
-| `FALLBACK_CSV` | Archivo local que se usa si las dos anteriores están vacías. Acepta CSV o XML. |
+| `CSV_URL` | CSV remoto ya procesado (por ejemplo el que publica GitHub Actions). |
+| `FALLBACK_CSV` | Respaldo local dentro del repositorio. Acepta CSV o XML. |
 | `CATALOG_CSV` | Catálogo permiso → razón social, dirección y ubicación. `""` lo desactiva. |
-| `PRICE_MIN`, `PRICE_MAX` | Rango de precio válido en MXN/litro. |
+| `PRICE_MIN`, `PRICE_MAX` | Rango de precio válido en MXN/litro (por omisión $15–$45). |
+| `SEARCH_DEBOUNCE_MS` | Espera del buscador antes de filtrar. |
 | `REFRESH_MINUTES` | Minutos entre actualizaciones automáticas. `0` las desactiva. |
 | `TITLE`, `SUBTITLE` | Encabezado del tablero. |
 | `REPO_URL` | Enlace del pie de página. |
@@ -222,12 +245,13 @@ actualiza solo en la siguiente lectura.
 ├── config.js                           Único archivo que necesitas editar
 ├── .nojekyll
 ├── README.md
-├── precios_2026-08-17.csv              Padrón nacional: 13,825 estaciones (respaldo local)
+├── fallback.csv                        Respaldo local: padrón nacional de 13,825 estaciones
 ├── catalogo_estaciones.csv             Permiso CRE → razón social y dirección (175 estaciones)
 ├── estaciones_seed.csv                 Corte de 175 estaciones con nombre y dirección
 ├── plantilla_google_sheets.csv         Plantilla de columnas para la hoja
 ├── xml_a_csv.py                        Convierte el XML oficial a CSV limpio y enriquecido
-└── AppsScript.gs                       Ingesta diaria del XML a Google Sheets
+├── AppsScript.gs                       Ingesta diaria del XML a Google Sheets
+└── actualizar-datos.yml                Flujo de GitHub Actions (copiar a .github/workflows/)
 ```
 
 Todos los archivos viven en la raíz del repositorio, sin subcarpetas: `index.html` queda en el
@@ -260,3 +284,56 @@ que ya trae el navegador. Dependencias por CDN: PapaParse 5.4.1 (lectura de CSV)
 
 **Notas:** excluye zonas fronterizas con estímulo fiscal. El indicador de ganancia de las compañías
 importadoras incluye el margen al mayoreo e incluye descuentos en TAR.
+
+---
+
+## 8. Flujo de comandos
+
+### Actualizar los datos (modalidad local)
+
+```bash
+# 1. Descarga el XML del día desde el portal de la CNE (o con curl si ya tienes la ruta)
+curl -fsSL -o precios_del_dia.xml "URL_DEL_XML"
+
+# 2. Conviértelo al CSV que lee el tablero
+python3 xml_a_csv.py precios_del_dia.xml --catalogo catalogo_estaciones.csv
+
+# 3. Revísalo en local antes de publicar
+python3 -m http.server 8000    # abre http://localhost:8000
+
+# 4. Publica
+git add fallback.csv
+git commit -m "Precios $(date +%F)"
+git push
+```
+
+Para acumular la serie histórica en lugar de reemplazar el corte del día, cambia el paso 2 por:
+
+```bash
+python3 xml_a_csv.py precios_del_dia.xml --catalogo catalogo_estaciones.csv \
+        --salida historico.csv --acumular
+```
+
+y apunta `FALLBACK_CSV: "historico.csv"` en `config.js`.
+
+### Primer despliegue
+
+```bash
+git init
+git add .
+git commit -m "Monitor de precios de combustibles"
+git branch -M main
+git remote add origin https://github.com/USUARIO/monitor-combustibles.git
+git push -u origin main
+```
+
+Luego **Settings → Pages → Deploy from a branch → `main` / `(root)`**.
+
+### Cambios posteriores al tablero
+
+```bash
+git add . && git commit -m "Ajustes" && git push
+```
+
+Con la modalidad Cloud no hace falta ninguno de estos pasos para los datos: al actualizarse la hoja,
+el tablero la lee en la siguiente sincronización.

@@ -1,0 +1,60 @@
+# =============================================================
+#  Actualización diaria de precios (modalidad GitHub Actions)
+#
+#  GitHub solo ejecuta los flujos que viven en .github/workflows/,
+#  así que este archivo debe copiarse a:
+#      .github/workflows/actualizar-datos.yml
+#  Es la única carpeta del proyecto, y la impone GitHub: el resto
+#  del repositorio se mantiene plano.
+#
+#  Antes de activarlo:
+#    1. Settings → Secrets and variables → Actions → Variables
+#       Crea la variable URL_XML con la ruta vigente del XML de la CNE.
+#    2. Settings → Actions → General → Workflow permissions:
+#       marca "Read and write permissions".
+# =============================================================
+
+name: Actualizar precios de combustibles
+
+on:
+  schedule:
+    # 13:00 UTC ≈ 07:00 en el centro de México
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Descargar el XML oficial de la CNE
+        run: curl -fsSL --retry 3 -o precios_del_dia.xml "${{ vars.URL_XML }}"
+
+      - name: Convertir a CSV
+        run: |
+          python3 xml_a_csv.py precios_del_dia.xml \
+                  --catalogo catalogo_estaciones.csv \
+                  --salida fallback.csv
+
+      - name: Publicar si hubo cambios
+        run: |
+          rm -f precios_del_dia.xml
+          if git diff --quiet -- fallback.csv; then
+            echo "Sin cambios en fallback.csv."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add fallback.csv
+          git commit -m "Precios $(date -u +%Y-%m-%d)"
+          git push

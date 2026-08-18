@@ -93,6 +93,8 @@ a{color:inherit}
 .status[data-state="live"] .status__dot{background:var(--regular);box-shadow:0 0 0 0 rgba(16,185,129,.55);animation:pulse 2.4s var(--ease) infinite}
 .status[data-state="loading"] .status__dot{background:var(--diesel);animation:blink 1s linear infinite}
 .status[data-state="error"] .status__dot{background:var(--premium)}
+.status[data-state="fallback"] .status__dot{background:var(--diesel)}
+.status[data-state="fallback"]{border-color:var(--accent)}
 .status__text{font-weight:600;letter-spacing:.01em}
 .status__time{color:var(--muted);font-family:var(--font-mono);font-size:11.5px}
 @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}

@@ -44,6 +44,15 @@
       .toLowerCase().replace(/[^a-z0-9]/g, "");
   }
 
+  /* El pipeline escribe "No especificado" para no dejar comas vacías en el CSV.
+     Para agrupar y filtrar equivale a un dato ausente. */
+  var SIN_DATO = ["no especificado", "sin dato", "sin datos", "n/d", "na", "n/a", "-", "—"];
+
+  function texto(v) {
+    var s = String(v === null || v === undefined ? "" : v).trim();
+    return SIN_DATO.indexOf(s.toLowerCase()) > -1 ? "" : s;
+  }
+
   function toNumber(v) {
     if (v === null || v === undefined) return null;
     var s = String(v).trim();
@@ -52,8 +61,8 @@
     if (!m) return null;
     var n = parseFloat(m[0]);
     if (!isFinite(n) || n <= 0) return null;
-    var lo = CFG.PRICE_MIN === undefined ? 5 : CFG.PRICE_MIN;
-    var hi = CFG.PRICE_MAX === undefined ? 60 : CFG.PRICE_MAX;
+    var lo = CFG.PRICE_MIN === undefined ? 15 : CFG.PRICE_MIN;
+    var hi = CFG.PRICE_MAX === undefined ? 45 : CFG.PRICE_MAX;
     // El XML oficial publica 0.01 o 1.00 cuando la estación no reportó precio.
     if (n < lo || n > hi) { quality.fueraRango++; return null; }
     return n;
@@ -157,7 +166,7 @@
     var map = buildHeaderMap(fields);
     var out = [];
     raw.forEach(function (r) {
-      var get = function (k) { return map[k] ? String(r[map[k]] === undefined ? "" : r[map[k]]).trim() : ""; };
+      var get = function (k) { return map[k] ? texto(r[map[k]]) : ""; };
       var estacion = get("estacion");
       var permiso = get("permiso");
       if (!estacion && !permiso) return;
@@ -193,7 +202,7 @@
   function dedupe(rows) {
     var byKey = {}, out = [];
     rows.forEach(function (r) {
-      var key = (r.permiso || r.estacion) + "|" + r.fecha;
+      var key = (r.permiso ? permitKey(r.permiso) : r.estacion) + "|" + r.fecha;
       if (!r.permiso) { out.push(r); return; }
       if (!byKey[key]) { byKey[key] = r; out.push(r); return; }
       quality.duplicados++;
@@ -247,7 +256,7 @@
     if (!catalog) return rows;
     quality.catalogo = 0;
     rows.forEach(function (r) {
-      var c = r.permiso && catalog[r.permiso];
+      var c = r.permiso && (catalog[r.permiso] || catalog[permitKey(r.permiso)]);
       if (!c) return;
       quality.catalogo++;
       ["region", "estado", "municipio", "marca", "estacion", "direccion"].forEach(function (k) {
@@ -262,7 +271,12 @@
     var parsed = parseCsv(text);
     var rows = normalize(parsed.rows, parsed.fields);
     var idx = {};
-    rows.forEach(function (r) { if (r.permiso) idx[r.permiso] = r; });
+    rows.forEach(function (r) {
+      if (!r.permiso) return;
+      idx[r.permiso] = r;
+      var k = permitKey(r.permiso);
+      if (!idx[k]) idx[k] = r;
+    });
     return idx;
   }
 
@@ -293,13 +307,31 @@
     });
   }
 
-  function resolveSource() {
-    if (CFG.SHEET_CSV_URL && CFG.SHEET_CSV_URL.trim())
-      return { url: CFG.SHEET_CSV_URL.trim(), kind: "csv", origin: "Google Sheets" };
-    if (CFG.XML_URL && CFG.XML_URL.trim())
-      return { url: CFG.XML_URL.trim(), kind: "xml", origin: "XML oficial CNE" };
-    var f = CFG.FALLBACK_CSV || "";
-    return { url: f, kind: /\.xml($|\?)/i.test(f) ? "xml" : "csv", origin: "archivo local" };
+  /* Clave canónica del permiso: mayúsculas, sin espacios y sin el prefijo
+     "CNE/" que la Comisión adoptó en 2025 para los permisos nuevos. Permite
+     cruzar catálogos capturados con una u otra convención. */
+  function permitKey(p) {
+    var k = String(p || "").toUpperCase().replace(/\s+/g, "");
+    return k.indexOf("CNE/") === 0 ? k.slice(4) : k;
+  }
+
+  function esXml(url) { return /\.xml($|\?)/i.test(url || ""); }
+
+  /* Orden de la arquitectura dual: Sheets → CSV remoto → XML → respaldo local.
+     Se devuelve la lista completa para poder degradar sin cortar la vista. */
+  function resolveSources() {
+    var lista = [];
+    var add = function (url, kind, origin, primary) {
+      url = (url || "").trim();
+      if (!url) return;
+      if (lista.some(function (s) { return s.url === url; })) return;
+      lista.push({ url: url, kind: kind, origin: origin, primary: !!primary });
+    };
+    add(CFG.SHEET_CSV_URL, "csv", "Google Sheets", true);
+    add(CFG.CSV_URL, "csv", "CSV remoto", true);
+    add(CFG.XML_URL, esXml(CFG.XML_URL) ? "xml" : "csv", "XML oficial CNE", true);
+    add(CFG.FALLBACK_CSV, esXml(CFG.FALLBACK_CSV) ? "xml" : "csv", "respaldo local", false);
+    return lista;
   }
 
   function parseSource(text, kind) {
@@ -310,36 +342,42 @@
   }
 
   function load(manual) {
-    var src = resolveSource();
+    var fuentes = resolveSources();
     var btn = $("refreshBtn");
+
+    if (!fuentes.length) {
+      setStatus("error", "Sin fuente configurada", "");
+      showLoadError("config.js", "No hay SHEET_CSV_URL, CSV_URL, XML_URL ni FALLBACK_CSV.");
+      return;
+    }
 
     setStatus("loading", "Cargando", "");
     btn.classList.add("is-spinning");
     btn.disabled = true;
 
-    var catalogUrl = CFG.CATALOG_CSV && CFG.CATALOG_CSV.trim();
-    var jobs = [fetchText(src.url)];
-    jobs.push(catalogUrl ? fetchText(catalogUrl).catch(function () { return null; }) : Promise.resolve(null));
+    var catUrl = CFG.CATALOG_CSV && CFG.CATALOG_CSV.trim();
+    var catalogo = catUrl ? fetchText(catUrl).then(buildCatalogSafe, function () { return null; })
+                          : Promise.resolve(null);
 
-    Promise.all(jobs)
+    catalogo
+      .then(function (cat) { return intentar(fuentes, 0, cat, []); })
       .then(function (res) {
-        var catalog = null;
-        if (res[1]) {
-          try { catalog = buildCatalog(res[1]); } catch (e) { catalog = null; }
-        }
-        quality = { duplicados: 0, fueraRango: 0, catalogo: 0 };
-
-        var rows = parseSource(res[0], src.kind);
-        if (!rows.length) throw new Error("La fuente no contiene estaciones con precio.");
-        applyCatalog(rows, catalog);
-
-        state.rows = rows;
+        quality = res.quality;
+        state.rows = res.rows;
         state.updatedAt = new Date();
-        state.origin = src.origin;
-        saveCache(rows);
-        setStatus("live", src.kind === "csv" && CFG.SHEET_CSV_URL ? "En vivo" : "Sincronizado", fmtDateTime(state.updatedAt));
+        state.origin = res.src.origin;
+        saveCache(res.rows);
         buildControls();
         render();
+        if (res.src.primary) {
+          setStatus("live", res.src.kind === "csv" && res.src.origin === "Google Sheets" ? "En vivo" : "Sincronizado",
+                    fmtDateTime(state.updatedAt));
+        } else if (fuentes.length > 1) {
+          // Alguna fuente primaria falló: se degradó al respaldo del repositorio.
+          setStatus("fallback", "Respaldo local", fmtDateTime(state.updatedAt));
+        } else {
+          setStatus("live", "Sincronizado", fmtDateTime(state.updatedAt));
+        }
       })
       .catch(function (err) {
         var cached = readCache();
@@ -349,10 +387,10 @@
           state.origin = cached.origin + " (copia guardada)";
           buildControls();
           render();
-          setStatus("error", "Sin conexión · datos guardados", fmtDateTime(state.updatedAt));
+          setStatus("fallback", "Sin conexión · datos guardados", fmtDateTime(state.updatedAt));
         } else {
           setStatus("error", "No se pudo cargar", "");
-          showLoadError(src.url, err.message);
+          showLoadError(fuentes.map(function (f) { return f.url; }).join(" · "), err.message);
         }
       })
       .then(function () {
@@ -360,6 +398,30 @@
         btn.disabled = false;
         if (manual) btn.blur();
       });
+  }
+
+  /* Recorre las fuentes en orden y se queda con la primera utilizable. */
+  function intentar(fuentes, i, catalogo, fallos) {
+    if (i >= fuentes.length) {
+      throw new Error(fallos.join(" | ") || "Ninguna fuente respondió.");
+    }
+    var src = fuentes[i];
+    return fetchText(src.url)
+      .then(function (text) {
+        quality = { duplicados: 0, fueraRango: 0, catalogo: 0 };
+        var rows = parseSource(text, src.kind);
+        if (!rows.length) throw new Error("Sin estaciones con precio.");
+        applyCatalog(rows, catalogo);
+        return { rows: rows, src: src, quality: quality };
+      })
+      .catch(function (e) {
+        fallos.push(src.url + ": " + e.message);
+        return intentar(fuentes, i + 1, catalogo, fallos);
+      });
+  }
+
+  function buildCatalogSafe(text) {
+    try { return buildCatalog(text); } catch (e) { return null; }
   }
 
   /* El padrón nacional supera las 13,800 estaciones: guardarlo completo en
@@ -986,7 +1048,8 @@
     $("search").addEventListener("input", function () {
       var v = this.value;
       clearTimeout(timer);
-      timer = setTimeout(function () { state.search = v; state.page = 1; render(); }, 180);
+      timer = setTimeout(function () { state.search = v; state.page = 1; render(); },
+                         CFG.SEARCH_DEBOUNCE_MS === undefined ? 180 : CFG.SEARCH_DEBOUNCE_MS);
     });
 
     $("prevPage").addEventListener("click", function () { if (state.page > 1) { state.page--; render(); } });
