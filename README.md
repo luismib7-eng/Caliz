@@ -1,243 +1,262 @@
-# RASTROS — Panel ejecutivo y base master
+# Monitor de Precios de Combustibles
 
-Panel de control del **Proyecto RASTROS** (Acción Regional para apoyar a los países en la lucha
-contra la trata de personas perpetrada a través de operaciones de estafa en línea), implementado
-por la **UNODC** con el **Gobierno del Estado de Jalisco**, 2025–2027.
+Tablero web para monitorear precios de gasolina Regular, Premium y Diésel por estación de
+servicio. Lee los datos en vivo desde una hoja de Google Sheets publicada como CSV y se
+despliega como sitio estático en GitHub Pages.
 
-Herramienta de uso personal del **Enlace Coordinador** de la Coordinación General Estratégica de
-Seguridad: un solo administrador que alimenta la base master, da seguimiento interinstitucional
-—Secretaría de Seguridad, Fiscalía del Estado, Fiscalía Especializada en Trata de Personas,
-Policía Cibernética y UNODC— y genera el reporte ejecutivo semanal.
+**Fuente:** Valores estimados por la SENER con información de la CRE/CNE y el SAT.
+El precio al público es un promedio de los precios registrados durante el periodo de referencia.
 
 ---
 
-## Cómo se usa
+## 1. Fuente oficial: el XML de la CNE
 
-**La captura vive en Google Sheets. El panel solo lee y presenta.** No hay formularios de alta:
-para agregar una propuesta de vetting, registrar una mesa de trabajo o actualizar el avance de una
-meta, se escribe en la base master y se recarga el panel.
+El portal de la Comisión Nacional de Energía publica un archivo XML con los precios al público
+de todas las estaciones del país:
 
-El panel tiene tres pistas de acción:
+<https://www.cne.gob.mx/ConsultaPrecios/GasolinasyDiesel/GasolinasyDiesel.html>
 
-### Todo lo configurable vive en la hoja
+```xml
+<precios fecha_generacion="2026-08-17">
+  <estacion permiso="PL/9998/EXP/ES/2015">
+    <producto tipo="regular" precio="24.5"/>
+    <producto tipo="premium" precio="30.5"/>
+    <producto tipo="diesel"  precio="27"/>
+  </estacion>
+</precios>
+```
 
-Ningún dato que cambie durante el proyecto está escrito en el código. Cuatro pestañas lo controlan:
+El XML trae **permiso y precio, nada más**: no incluye razón social, dirección ni ubicación. Por eso
+el proyecto trabaja con dos piezas separadas:
 
-| Pestaña | Controla |
+| Pieza | Qué aporta | Con qué frecuencia cambia |
+|---|---|---|
+| XML de la CNE | Precios del día por permiso | Diaria |
+| `catalogo_estaciones.csv` | Permiso → razón social, dirección, municipio, estado, región | Rara vez |
+
+El tablero cruza ambos por el número de permiso. Las estaciones sin coincidencia en el catálogo se
+muestran identificadas por su permiso y siguen contando en promedios, mínimos y máximos.
+
+### Rutas para alimentar el tablero
+
+1. **Google Sheets (recomendada).** Un Apps Script descarga el XML cada día, lo convierte en filas y
+   las agrega a la hoja; el tablero lee el CSV publicado. Es la única ruta que construye historia y
+   la única inmune al bloqueo CORS. Ver la sección 3.
+2. **XML dentro del repositorio.** Copia el archivo junto a los demás y apunta `XML_URL` a él. El tablero lo
+   interpreta directamente; sirve para un corte fijo, sin serie histórica.
+3. **Conversión local a CSV.** `xml_a_csv.py` genera el CSV ya limpio y enriquecido.
+
+> **El navegador no puede leer el XML directamente del servidor de la CNE.** El portal no envía la
+> cabecera `Access-Control-Allow-Origin`, así que apuntar `XML_URL` a `https://www.cne.gob.mx/...`
+> falla por CORS. Apps Script no tiene ese problema porque la descarga la hace el servidor de Google.
+
+### Convertir el XML con `xml_a_csv.py`
+
+```bash
+python3 xml_a_csv.py precios_2026-08-17.xml --catalogo catalogo_estaciones.csv
+# → precios_2026-08-17.csv
+
+# Para acumular varios días en un mismo archivo histórico:
+python3 xml_a_csv.py precios_2026-08-18.xml \
+        --catalogo catalogo_estaciones.csv \
+        --salida historico.csv --acumular
+```
+
+### Limpieza que se aplica siempre
+
+Tanto el script como el tablero aplican las mismas dos reglas, así que los números coinciden
+sin importar la ruta que uses:
+
+- **Precios fuera de rango.** El XML publica `0.01` o `1.00` cuando la estación no reportó precio.
+  Se descartan los valores fuera de `PRICE_MIN`–`PRICE_MAX` (por omisión $5–$60) para que no
+  distorsionen promedios ni el mínimo del periodo.
+- **Permisos repetidos.** Se conserva el primer registro y solo se completan los productos que le
+  falten. En el corte del 17 de agosto de 2026 esto afectó a 35 permisos con precios contradictorios.
+
+En ese mismo corte: 13,860 estaciones en el XML, 13,825 filas útiles, 16 precios descartados. Los
+promedios resultantes ($23.69 Regular, $28.51 Premium, $27.02 Diésel) coinciden con los publicados
+por Profeco para el periodo, lo que confirma que el criterio de limpieza es el adecuado.
+
+---
+
+## 2. Estructura de la hoja de cálculo
+
+La primera fila debe contener los encabezados. Solo `Estacion` (o `Permiso CRE`) y al menos una
+columna de precio son obligatorias; las demás enriquecen el tablero.
+
+| Columna | Obligatoria | Ejemplo | Para qué sirve |
+|---|---|---|---|
+| `Fecha` | recomendada | `2026-08-18` | Selector de periodo, tendencia histórica y delta vs. periodo anterior |
+| `Region` | opcional | `Occidente` | Agrupación de la comparativa y filtro superior |
+| `Estado` | opcional | `Jalisco` | Alternativa de agrupación si no hay región |
+| `Municipio` | opcional | `Zapopan` | Búsqueda y columna de ubicación |
+| `Estacion` | **sí** | `GASOLINERA MARTÍN S.A. DE C.V.` | Razón social de la estación |
+| `Permiso CRE` | recomendada | `PL/7773/EXP/ES/2015` | Identificador único y búsqueda |
+| `Direccion` | recomendada | `Avenida Adolfo López Mateos Sur No. 1000` | Domicilio en tabla y tarjetas |
+| `Regular` | sí* | `22.99` | Precio en MXN/litro |
+| `Premium` | sí* | `28.39` | Precio en MXN/litro |
+| `Diesel` | sí* | `26.99` | Precio en MXN/litro |
+| `Tipo Diesel` | opcional | `DUBA` | Etiqueta en la tabla (DUBA / Automotriz) |
+| `Margen` | opcional | `2.06` | Indicador de dispersión, se lee para uso futuro |
+
+\* Al menos una de las tres columnas de precio.
+
+**Formatos aceptados en las celdas de precio:** `22.99`, `$22.99`, `$22.99 - Regular (con un índice
+de octano ([RON+MON]/2) mínimo de 87)`. El tablero extrae el número y descarta el texto. Las celdas
+vacías, `N/A`, `N/D` o `-` se muestran como *N/D* y quedan fuera de los promedios.
+
+**Nombres de columna flexibles.** El tablero reconoce variantes sin distinguir mayúsculas ni acentos:
+`Fecha` / `Periodo` / `Periodo de referencia`; `Estado` / `Entidad`; `Municipio` / `Ciudad`;
+`Estacion` / `Razón Social` / `Estación de servicio`; `Permiso CRE` / `Número` / `Número de permiso`;
+`Direccion` / `Domicilio`; `Regular` / `Precio Regular`; `Diesel` / `Diésel` / `DUBA`.
+
+Para acumular historia, **agrega filas nuevas con otra `Fecha`** en la misma hoja; no reemplaces las
+anteriores. Con dos periodos o más se activan la gráfica de tendencia y el delta de las tarjetas KPI.
+
+Los archivos `plantilla_google_sheets.csv` (plantilla con tres filas de ejemplo) y
+`estaciones_seed.csv` (175 permisos ya normalizados, periodo 18 de agosto de 2026) sirven de
+punto de partida: ábrelos en Google Sheets con **Archivo → Importar**.
+
+---
+
+## 3. Publicar la hoja como CSV y automatizar la ingesta
+
+1. Abre tu hoja en Google Sheets.
+2. **Archivo → Compartir → Publicar en la web**.
+3. En el primer desplegable elige **la pestaña específica** con los datos (no "Todo el documento").
+4. En el segundo desplegable elige **Valores separados por comas (.csv)**.
+5. Pulsa **Publicar** y confirma. Copia la URL que aparece; termina en `output=csv`:
+
+   ```
+   https://docs.google.com/spreadsheets/d/e/2PACX-1vQ.../pub?gid=0&single=true&output=csv
+   ```
+
+6. Pega esa URL en `config.js`:
+
+   ```js
+   SHEET_CSV_URL: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ.../pub?gid=0&single=true&output=csv",
+   ```
+
+Publicar en la web deja la hoja accesible para cualquiera con el enlace: usa una hoja dedicada al
+tablero, sin datos reservados. Google tarda unos minutos en reflejar los cambios en el CSV
+publicado; el botón **Actualizar** fuerza una nueva lectura del lado del navegador.
+
+Si dejas `SHEET_CSV_URL` vacía, el tablero usa `XML_URL` y, en su defecto, `FALLBACK_CSV`.
+
+### Automatizar la ingesta del XML (Apps Script)
+
+`AppsScript.gs` mantiene la hoja al día sin intervención:
+
+1. En la hoja de cálculo: **Extensiones → Apps Script**.
+2. Pega el contenido de `AppsScript.gs`, guarda y confirma la ruta vigente del XML en
+   `CONFIG.URL_XML` (tómala del portal de la CNE).
+3. Crea dos pestañas: **`Precios`** (destino, la que publicas como CSV) y **`Catalogo`**
+   (permiso CRE, razón social, dirección, municipio, estado, región).
+4. Ejecuta `actualizarPrecios` una vez para autorizar los permisos y verificar el resultado.
+5. Ejecuta `instalarDisparadorDiario` una sola vez: a partir de ahí corre solo cada mañana.
+
+Cada corrida **agrega** el periodo nuevo sin borrar los anteriores, y si la fecha ya estaba cargada
+no duplica nada. Como son ~13,800 filas por día, ejecuta `conservarUltimosPeriodos(60)` de vez en
+cuando para no acercarte al límite de 10 millones de celdas de Google Sheets.
+
+---
+
+## 4. Otros ajustes en `config.js`
+
+| Clave | Qué controla |
 |---|---|
-| `Pendientes_UNODC` | Los pendientes que muestra el panel. Marcar `Resuelto` lo retira. |
-| `Ruta_Critica` | Los hitos, su estatus y su orden. |
-| `Configuracion_Dashboard` | Cuota por dependencia, meta del diagnóstico, fecha límite y umbrales de alerta. |
-| `Metadatos_Proyecto` | Títulos, fase, periodo, países e instituciones del encabezado. |
-
-Más `Listas_Catalogos`, que ahora incluye la columna `Dependencia_Abrev` con las abreviaturas que
-usan las tarjetas y el reporte. Las descripciones y objetivos de las metas se leen de
-`Control_Metas_y_KPIs`; no se agregaron columnas porque la hoja ya las tenía sin usar.
-
-Si una pestaña falta o un valor es inválido, el código registra el problema en el log de Apps
-Script y usa el respaldo interno. El panel nunca se queda en blanco.
-
-| Módulo | Para qué |
-|---|---|
-| **1 · Resumen ejecutivo y alertas** | Qué está trabado hoy: cuellos de botella, semáforo de las 4 metas y ruta crítica. |
-| **2 · Control de vetting** | Avance por dependencia con semaforización, más la tabla completa con buscador y filtros. |
-| **3 · Seguimiento operativo** | Mesas y capacitaciones, estatus del diagnóstico y pendientes con UNODC. |
-
-### Reporte ejecutivo semanal
-
-El botón del encabezado arma una ficha de una a dos páginas y abre el diálogo de impresión.
-Elija **Guardar como PDF** en el destino. El reporte contiene el estado de las 4 metas, el
-resumen de vetting por dependencia, las alertas y pendientes con UNODC, y los próximos hitos.
-
-Las reglas `@media print` ocultan navegación, pestañas y fondos oscuros: lo que se imprime es
-únicamente la ficha, en blanco y negro salvo la banda de encabezado. Si su navegador inserta
-encabezados con la URL, desactívelos en *Más configuraciones ▸ Encabezados y pies de página*.
-
-### Indicador de conexión
-
-El punto junto al título indica de dónde salen los datos. **Verde**: conectado a la base master.
-**Rojo**: sin conexión, mostrando la estructura local sin datos reales. Púlselo para reintentar.
-
-Abierto desde GitHub Pages el punto siempre estará en rojo: es un dominio ajeno a Google y el
-navegador bloquea la lectura de la hoja. Los datos vivos están en la URL `/exec` de Apps Script.
+| `SHEET_CSV_URL` | CSV publicado de Google Sheets. Tiene prioridad sobre las demás fuentes. |
+| `XML_URL` | XML oficial (usa una copia en el repositorio; ver la advertencia de CORS). |
+| `FALLBACK_CSV` | Archivo local que se usa si las dos anteriores están vacías. Acepta CSV o XML. |
+| `CATALOG_CSV` | Catálogo permiso → razón social, dirección y ubicación. `""` lo desactiva. |
+| `PRICE_MIN`, `PRICE_MAX` | Rango de precio válido en MXN/litro. |
+| `REFRESH_MINUTES` | Minutos entre actualizaciones automáticas. `0` las desactiva. |
+| `TITLE`, `SUBTITLE` | Encabezado del tablero. |
+| `REPO_URL` | Enlace del pie de página. |
+| `BENCHMARK` | Referencia nacional que se compara en las tarjetas KPI y se marca en la regla de dispersión. Cambia los valores cuando Profeco publique una nueva edición. |
+| `METODOLOGIA` | Leyenda que aparece en el pie y en los tooltips de las tarjetas. |
+| `PAGE_SIZE` | Filas por página del explorador. |
 
 ---
 
-## Estado actual
+## 5. Publicar en GitHub Pages
 
-| Componente | Estado |
-|---|---|
-| Base master en Google Sheets | Estructurada y verificada (24/07/2026) |
-| Fórmulas de KPIs e indicadores | Calculando correctamente |
-| Panel ejecutivo (`Panel.html` en Apps Script) | Pendiente de implementar |
-| Vista previa en GitHub Pages | Publicada, sin datos en vivo |
+```bash
+# 1. Dentro de la carpeta del proyecto
+git init
+git add .
+git commit -m "Tablero de precios de combustibles"
+git branch -M main
 
----
+# 2. Crea el repositorio vacío en github.com y enlázalo
+git remote add origin https://github.com/USUARIO/monitor-combustibles.git
+git push -u origin main
+```
 
-## Antes de publicar este repositorio
+En GitHub: **Settings → Pages → Build and deployment → Source: Deploy from a branch**,
+rama `main`, carpeta `/ (root)`, **Save**. En uno o dos minutos el sitio queda en:
 
-Este proyecto administra información de **vetting de servidores públicos** que incluye datos
-personales sensibles: nombre, CURP, CUIP, fecha de nacimiento, control de confianza, adscripción
-y correo institucional.
+```
+https://USUARIO.github.io/monitor-combustibles/
+```
 
-1. **Mantenga el repositorio privado** salvo decisión expresa en contrario.
-2. **Nunca haga commit de datos reales de personas.** El libro y la plantilla CSV incluidos
-   contienen únicamente plazas por designar y valores ficticios.
-3. El identificador de la hoja está escrito en `index.html`, `Panel.html` y `Codigo.gs`. Si el
-   repositorio se hace público, ese identificador queda expuesto: la hoja debe permanecer
-   restringida por permisos de Google, no por lo poco conocido del enlace.
-4. Un historial de Git conserva lo que se borró después. Si llegara a subirse información
-   personal, no basta con eliminarla en un commit posterior: hay que reescribir el historial.
-5. La base actual vive en una cuenta personal de Gmail y quedó con acceso de edición abierto
-   durante las pruebas. Antes de capturar datos reales, migre el libro a la cuenta institucional
-   y restrinja el acceso.
+Para actualizar el tablero después de un cambio:
 
----
+```bash
+git add . && git commit -m "Ajustes" && git push
+```
 
-## Contenido
-
-Todos los archivos viven en la raíz del repositorio.
-
-| Archivo | Qué es |
-|---|---|
-| `Panel.html` | Panel ejecutivo. Es el archivo que se pega en Apps Script. |
-| `index.html` | Copia idéntica de `Panel.html` para vista previa en GitHub Pages (sin datos en vivo). |
-| `Codigo.gs` | Apps Script: estructura la base, sirve el panel y le entrega los datos procesados. |
-| `appsscript.json` | Manifiesto del proyecto de Apps Script (necesario solo si usa `clasp`). |
-| `RASTROS_UNODC_Master_DB.xlsx` | Libro con las 6 pestañas listas para importar a Google Sheets. |
-| `generar_libro_maestro.py` | Script que regenera el libro anterior desde cero (`openpyxl`). |
-| `Vetting_Beneficiarios_plantilla.csv` | Plantilla de carga con los nueve encabezados exactos. |
-| `.gitignore` | Exclusiones de trabajo local. |
-| `.nojekyll` | Evita que GitHub Pages procese el sitio con Jekyll. |
-| `MANUAL_CAPTURA.md` | Manual de captura paso a paso, escenario por escenario. |
-| `README.md` | Este documento. |
+El archivo `.nojekyll` evita que GitHub Pages procese el sitio con Jekyll.
+Los datos **no** requieren un nuevo despliegue: al cambiar la hoja de cálculo, el tablero se
+actualiza solo en la siguiente lectura.
 
 ---
 
-## Puesta en marcha
+## 6. Estructura de archivos
 
-### 1. Base master en Google Sheets
+```
+.
+├── index.html                          Estructura del tablero
+├── styles.css                          Tokens de diseño, temas claro/oscuro y componentes
+├── app.js                              Carga, normalización, KPIs, gráficos y explorador
+├── config.js                           Único archivo que necesitas editar
+├── .nojekyll
+├── README.md
+├── precios_2026-08-17.csv              Padrón nacional: 13,825 estaciones (respaldo local)
+├── catalogo_estaciones.csv             Permiso CRE → razón social y dirección (175 estaciones)
+├── estaciones_seed.csv                 Corte de 175 estaciones con nombre y dirección
+├── plantilla_google_sheets.csv         Plantilla de columnas para la hoja
+├── xml_a_csv.py                        Convierte el XML oficial a CSV limpio y enriquecido
+└── AppsScript.gs                       Ingesta diaria del XML a Google Sheets
+```
 
-**Ruta A — importar el libro (la que se usó).**
-En el libro destino: **Archivo ▸ Importar ▸ Subir**, seleccione `RASTROS_UNODC_Master_DB.xlsx`
-y elija **Insertar hojas nuevas**. No use *Reemplazar hoja*.
+Todos los archivos viven en la raíz del repositorio, sin subcarpetas: `index.html` queda en el
+primer nivel, que es lo que GitHub Pages espera para servir el sitio desde `/ (root)`.
 
-> No abra el archivo en Excel antes de importarlo. Dos nombres de pestaña miden 33 caracteres y
-> el límite de Excel es 31; Google Sheets los acepta, pero Excel los truncaría y el código
-> dejaría de encontrarlos.
+El tablero interpreta CSV y XML sin dependencias adicionales: el XML se lee con `DOMParser`,
+que ya trae el navegador. Dependencias por CDN: PapaParse 5.4.1 (lectura de CSV), Chart.js 4.4.1 (gráficos) y Google Fonts
+(Archivo, IBM Plex Sans, IBM Plex Mono). Sin proceso de compilación: el sitio funciona abriendo
+`index.html` desde un servidor estático.
 
-**Ruta B — ejecutar el script.**
-**Extensiones ▸ Apps Script**, pegue `Codigo.gs`, guarde y ejecute `setupMasterDB`. Es
-idempotente. Antes de reestructurar una base con capturas, use **▸ RASTROS ▸ Respaldar libro**.
-
-Pestañas resultantes:
-
-1. `Control_Metas_y_KPIs` — las 4 metas e indicadores operativos calculados.
-2. `Vetting_Beneficiarios` — control de propuestas y su estatus ante la Embajada.
-3. `Respuestas_Formulario_Diagnostico` — 67 preguntas en las 8 secciones del instrumento.
-4. `Mesas_de_Trabajo_y_Capacitaciones` — logística y acuerdos de cada evento.
-5. `Listas_Catalogos` — alimenta las listas desplegables. No la borre.
-6. `Mapeo_Formato_VETTING_Oficial` — espejo de las 31 columnas del formato de la Embajada.
-
-**Los nombres de pestaña y de encabezado no se renombran.** El código los busca literalmente.
-
-### 2. Panel ejecutivo (aplicación de Apps Script)
-
-0. Si su base ya estaba estructurada, ejecute una sola vez
-   **▸ RASTROS ▸ Crear pestañas dinámicas**. Es aditivo: crea las cuatro pestañas nuevas y la
-   columna de abreviaturas sin tocar una sola celda de lo existente.
-1. Pulse **+ ▸ HTML**, nombre el archivo **`Panel`** (sin extensión) y pegue el contenido de
-   `Panel.html`. El nombre importa: `doGet()` lo busca exactamente así.
-2. **Implementar ▸ Nueva implementación ▸ Tipo: Aplicación web**
-   - Ejecutar como: **Usuario que accede**
-   - Quién tiene acceso: **Solo yo** si el libro está en una cuenta personal, o
-     **Usuarios de jalisco.gob.mx** si se migró al Workspace institucional.
-     No use *Cualquier usuario*: expondría la base de vetting.
-3. Copie la URL que termina en `/exec`.
-
-Para recuperarla más tarde: **▸ RASTROS ▸ Ver URL del tablero web**.
-
-Cada vez que modifique `Codigo.gs` o `Panel.html` debe pulsar **Implementar ▸ Gestionar
-implementaciones ▸ Editar ▸ Versión: Nueva**. La URL no cambia. Es el descuido más común: se
-edita, se recarga y no pasa nada, porque la implementación sigue apuntando a la versión anterior.
-
-### 3. GitHub Pages (opcional)
-
-*Settings ▸ Pages ▸ Deploy from a branch ▸ `main` / `root`*. El archivo `.nojekyll` ya está
-incluido.
+> Para probarlo en tu equipo: `python3 -m http.server 8000` y abre `http://localhost:8000`.
+> Abrir el archivo con doble clic (`file://`) no funciona porque el navegador bloquea la lectura
+> del CSV local.
 
 ---
 
-## Arquitectura de datos
+## 7. Qué muestra cada bloque
 
-El panel resuelve su fuente en cascada: `google.script.run` → CSV público → estructura local.
+- **Tarjetas KPI.** Promedio de cada producto en el periodo y filtro activos, número de estaciones
+  con precio, cambio contra el periodo anterior y diferencia contra la referencia nacional.
+- **Precio más bajo / más alto.** Estación en los extremos del producto seleccionado.
+- **Regla de dispersión.** Una marca por estación entre el mínimo y el máximo, con la mediana, la
+  banda P25–P75 y la referencia nacional. Muestra de un vistazo qué tan concentrado está el mercado.
+- **Tendencia por periodo.** Promedio de los tres productos en cada fecha cargada.
+- **Comparativa.** Promedio por región, estado, municipio o marca, según las columnas disponibles.
+  Con más de catorce grupos muestra los siete más altos y los siete más bajos.
+- **Distribución de precios.** Cuántas estaciones caen en cada rango.
+- **Explorador.** Búsqueda por estación, permiso CRE, municipio o dirección; orden por cualquier
+  columna; paginación; etiquetas de mínimo, máximo y tipo de diésel.
 
-`obtenerDatosTablero()` es la única puerta de entrada y **entrega los agregados ya calculados**,
-para que el panel, el reporte impreso y cualquier consumidor futuro vean las mismas cifras:
-
-- `beneficiarios` — registros de vetting.
-- `porDependencia` — acumulado por entidad, incluidas las que aún no reportan ninguna propuesta.
-- `alertas` — tarjetas de cuellos de botella con su nivel (`critica` / `atencion` / `ok`).
-- `diagnostico` — recibidos, validados, meta y desglose por institución (columna P05).
-- `eventos`, `metas` (con nombre, descripción, objetivos y fuente), `diasRestantes`.
-- `metadatos`, `configuracion`, `pendientesUnodc`, `rutaCritica`, `catalogos`, `abreviaturas`.
-
-Funciones de lectura: `leerConfiguracion()`, `leerMetadatos()`, `leerPendientesUNODC()`,
-`leerRutaCritica()`, `leerCatalogos()`, `leerAbreviaturas()`. Todas con caché por ejecución y
-lectura acotada al contenido real de cada hoja.
-
-El frontend replica esa lógica **solo como respaldo**, para que la vista previa y la lectura por
-CSV muestren lo mismo. Si el servidor manda los agregados, mandan ellos.
-
-### Supuesto que conviene revisar
-
-`CUOTA_POR_DEPENDENCIA = 2` alimenta la alerta de *dependencias por debajo de cuota*. Sale de la
-minuta del 22/07/2026, donde UNODC habló de «tal vez uno, dos por unidad», no de una cifra formal.
-**Ya no se edita en el código:** cámbielo en `Configuracion_Dashboard`.
-
-### Captura desde el panel
-
-`agregarBeneficiario()` sigue en `Codigo.gs`, probada y funcional, pero **sin uso**: el rediseño
-retiró el formulario de alta. Para reactivarla basta con volver a llamarla con `google.script.run`
-desde `Panel.html`. Escribe validando en el servidor, rechaza correos duplicados y usa
-`LockService` contra escrituras simultáneas.
-
----
-
-## Convenciones del libro
-
-- Celdas en **azul**: datos de ejemplo, sustitúyalos por los reales.
-- Celdas **amarillas** en `Control_Metas_y_KPIs`: avance manual de las metas 1, 3 y 4. La meta 2
-  se calcula sumando los asistentes de los eventos tipo *Capacitación*.
-- Todo lo demás son fórmulas. Si las sobrescribe, el panel dejará de reflejar el avance.
-
-Para regenerar el libro: `python3 generar_libro_maestro.py salida.xlsx` (requiere `openpyxl`).
-Genera el archivo sin recalcular, a propósito: Google Sheets computa las fórmulas al importar, y
-pasarlo por LibreOffice truncaría los nombres largos de pestaña.
-
----
-
-## Fechas y acuerdos de referencia
-
-Conforme a la reunión con UNODC del 22 de julio de 2026:
-
-- **29 de julio de 2026** — cierre de propuestas de vetting y de comentarios al formulario de
-  diagnóstico. Los comentarios los formulan únicamente los tomadores de decisiones.
-- **Semana del 24 de agosto de 2026** — reunión presencial con personal clave con nivel de mando
-  o vínculo de comunicación con los operativos.
-- La sede externa, alimentos, catering y coffee break corren a cargo de UNODC.
-- Pendiente: confirmar con UNODC si la Embajada requerirá el Anexo 3.
-
----
-
-## Notas técnicas
-
-- `Panel.html` usa Tailwind por CDN y tipografías de Google Fonts; requiere conexión a internet.
-- No se usa `localStorage` ni ningún almacenamiento del navegador.
-- El script precarga formato y validaciones en 200 filas (`CFG.FILAS_PRECARGADAS`).
-
-## Licencia
-
-Sin licencia definida. Antes de abrir el repositorio, determine el régimen aplicable con el área
-jurídica, considerando que el proyecto se ejecuta con financiamiento del Departamento de Estado
-de los Estados Unidos a través de UNODC.
+**Notas:** excluye zonas fronterizas con estímulo fiscal. El indicador de ganancia de las compañías
+importadoras incluye el margen al mayoreo e incluye descuentos en TAR.

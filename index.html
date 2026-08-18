@@ -1,918 +1,219 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
-<!--
-  Proyecto RASTROS · UNODC / Gobierno del Estado de Jalisco
-  Panel de control ejecutivo del Enlace Coordinador (CGES).
-  Documento de trabajo interno. No capturar datos personales aquí: ver README.md
--->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RASTROS · Panel ejecutivo — UNODC / Jalisco</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        unodc:  '#009EDB',
-        marino: '#003366',
-        humo:   '#F2F5F7',
-        alerta: '#D0021B',
-        ambar:  '#F5A623',
-        verde:  '#1E8E5A'
-      },
-      fontFamily: {
-        display: ['"Roboto Condensed"', 'sans-serif'],
-        sans: ['Inter', 'system-ui', 'sans-serif']
-      }
-    }
-  }
-}
-</script>
-<style>
-  body { background: #EAEFF3; }
-  .tabla-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
-  .tabla-scroll::-webkit-scrollbar-thumb { background: #9FB3C2; border-radius: 4px; }
-  .barra { transition: width .7s cubic-bezier(.2,.7,.3,1); }
-  [data-panel] { animation: entra .28s ease-out; }
-  @keyframes entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { *, [data-panel] { animation: none !important; transition: none !important; } }
-  :focus-visible { outline: 3px solid #009EDB; outline-offset: 2px; }
-
-  /* El reporte ejecutivo vive oculto y solo existe al imprimir */
-  #reporte { display: none; }
-
-  @media print {
-    @page { size: A4 portrait; margin: 14mm; }
-    body { background: #fff !important; }
-    .no-print { display: none !important; }
-    #reporte { display: block !important; }
-    #reporte * { color: #000 !important; }
-    .rep-banda { background: #003366 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .rep-banda * { color: #fff !important; }
-    .rep-tabla th { background: #E8EEF4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .rep-corte { break-inside: avoid; page-break-inside: avoid; }
-  }
-</style>
+<title>Monitor de Precios de Combustibles</title>
+<meta name="description" content="Tablero dinámico de precios de gasolina Regular, Premium y Diésel por estación de servicio.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230F1727'/%3E%3Crect x='7' y='6' width='5' height='20' fill='%2310B981'/%3E%3Crect x='14' y='6' width='5' height='20' fill='%23E11D48'/%3E%3Crect x='21' y='6' width='5' height='20' fill='%23D8A64A'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<div class="min-h-screen font-sans text-slate-800 no-print">
-
-  <!-- ══════════ ENCABEZADO ══════════ -->
-  <header class="bg-marino text-white">
-    <div class="max-w-7xl mx-auto px-6 py-6">
-      <div class="flex flex-wrap items-start justify-between gap-6">
-        <div>
-          <div class="flex items-center gap-3">
-            <p id="mEyebrow" class="font-display tracking-[0.28em] text-unodc text-xs uppercase">UNODC · Gobierno del Estado de Jalisco</p>
-            <button id="badgeOrigen" type="button" title="Estatus de conexión con la base master — pulse para reintentar"
-                    class="h-2.5 w-2.5 rounded-full bg-slate-400" aria-label="Estatus de conexión"></button>
-          </div>
-          <h1 id="mTitulo" class="font-display text-4xl md:text-5xl font-bold mt-1 leading-none">RASTROS</h1>
-          <p id="mSubtitulo" class="text-slate-300 text-sm mt-2 max-w-2xl leading-relaxed">
-            Panel ejecutivo del Enlace Coordinador · Coordinación General Estratégica de Seguridad
-          </p>
-        </div>
-        <div class="text-right">
-          <button id="btnReporte"
-                  class="mb-3 px-5 py-2.5 rounded bg-unodc text-white text-sm font-medium hover:bg-[#0089C0] shadow">
-            Generar reporte ejecutivo semanal
-          </button>
-          <p class="text-[11px] uppercase tracking-widest text-slate-400">Fase actual</p>
-          <p id="mFase" class="font-display text-lg font-bold">Convocatoria de vetting y diagnóstico inicial</p>
-          <p id="mPeriodo" class="text-slate-300 text-xs">Julio – Agosto 2026 · México (Jalisco) · Guatemala · Perú</p>
-        </div>
-      </div>
+<!-- ══════════════ ENCABEZADO EJECUTIVO ══════════════ -->
+<header class="topbar">
+  <div class="wrap topbar__inner">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span>
+        <span class="brand__name" id="appTitle">Monitor de Precios de Combustibles</span>
+        <span class="brand__sub" id="appSubtitle">Gasolina Regular, Premium y Diésel · Precio al público (MXN/litro)</span>
+      </span>
     </div>
 
-    <div id="bannerLimite" class="bg-alerta text-white">
-      <div class="max-w-7xl mx-auto px-6 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        <span class="font-display font-bold tracking-wide uppercase text-xs">Fecha límite</span>
-        <span>Envío de propuestas de vetting: <strong id="mLimite">29/07/2026</strong></span>
-        <span id="cuenta" class="ml-auto font-display font-bold"></span>
+    <div class="topbar__tools">
+      <div class="status" id="status" data-state="loading">
+        <span class="status__dot" aria-hidden="true"></span>
+        <span class="status__text" id="statusText">Cargando</span>
+        <span class="status__time" id="statusTime"></span>
       </div>
+      <button class="btn" id="refreshBtn" type="button">
+        <span class="btn__icon" aria-hidden="true">&#8635;</span> Actualizar
+      </button>
+      <button class="btn btn--ghost" id="themeBtn" type="button" aria-label="Cambiar entre modo oscuro y claro">
+        <span aria-hidden="true">◐</span> Tema
+      </button>
+    </div>
+  </div>
+
+  <!-- Controles -->
+  <div class="wrap controls">
+    <div class="segmented" role="tablist" aria-label="Producto">
+      <button class="seg seg--regular is-active" role="tab" aria-selected="true" data-product="regular">Regular</button>
+      <button class="seg seg--premium" role="tab" aria-selected="false" data-product="premium">Premium</button>
+      <button class="seg seg--diesel" role="tab" aria-selected="false" data-product="diesel">Diésel</button>
     </div>
 
-    <nav class="bg-[#00284F]" role="tablist" aria-label="Módulos del panel">
-      <div class="max-w-7xl mx-auto px-6 flex gap-1 overflow-x-auto">
-        <button data-tab="resumen"  class="tab px-5 py-3 text-sm font-medium whitespace-nowrap border-b-[3px] border-transparent text-slate-300 hover:text-white">1 · Resumen ejecutivo y alertas</button>
-        <button data-tab="vetting"  class="tab px-5 py-3 text-sm font-medium whitespace-nowrap border-b-[3px] border-transparent text-slate-300 hover:text-white">2 · Control de vetting</button>
-        <button data-tab="operativo" class="tab px-5 py-3 text-sm font-medium whitespace-nowrap border-b-[3px] border-transparent text-slate-300 hover:text-white">3 · Seguimiento operativo</button>
+    <label class="field">
+      <span class="field__label">Periodo</span>
+      <select id="periodSelect" class="input"></select>
+    </label>
+
+    <label class="field">
+      <span class="field__label" id="regionLabel">Región / Estado</span>
+      <select id="regionSelect" class="input"><option value="">Todas</option></select>
+    </label>
+
+    <p class="controls__note" id="datasetNote">—</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ══════════════ TARJETAS KPI ══════════════ -->
+  <section class="kpis" aria-label="Indicadores principales">
+    <article class="kpi kpi--regular" id="kpiRegular">
+      <p class="kpi__label">Regular <span class="kpi__hint" data-tip>i</span></p>
+      <p class="kpi__value">—</p>
+      <p class="kpi__delta"></p>
+      <p class="kpi__bench"></p>
+    </article>
+    <article class="kpi kpi--premium" id="kpiPremium">
+      <p class="kpi__label">Premium <span class="kpi__hint" data-tip>i</span></p>
+      <p class="kpi__value">—</p>
+      <p class="kpi__delta"></p>
+      <p class="kpi__bench"></p>
+    </article>
+    <article class="kpi kpi--diesel" id="kpiDiesel">
+      <p class="kpi__label">Diésel <span class="kpi__hint" data-tip>i</span></p>
+      <p class="kpi__value">—</p>
+      <p class="kpi__delta"></p>
+      <p class="kpi__bench"></p>
+    </article>
+
+    <article class="extreme extreme--low" id="cardMin">
+      <p class="extreme__label">Precio más bajo</p>
+      <p class="extreme__price">—</p>
+      <p class="extreme__station">—</p>
+      <p class="extreme__addr"></p>
+    </article>
+    <article class="extreme extreme--high" id="cardMax">
+      <p class="extreme__label">Precio más alto</p>
+      <p class="extreme__price">—</p>
+      <p class="extreme__station">—</p>
+      <p class="extreme__addr"></p>
+    </article>
+  </section>
+
+  <!-- ══════════════ REGLA DE DISPERSIÓN ══════════════ -->
+  <section class="panel rail" aria-label="Dispersión de precios">
+    <div class="panel__head">
+      <h2 class="panel__title">Regla de dispersión</h2>
+      <p class="panel__sub" id="railSub">Cada marca es una estación. La banda sombreada concentra la mitad central del mercado (P25–P75).</p>
+    </div>
+    <div class="rail__body">
+      <div class="rail__track" id="railTrack">
+        <div class="rail__iqr" id="railIqr"></div>
+        <div class="rail__median" id="railMedian"><span></span></div>
+        <div class="rail__bench" id="railBench"><span></span></div>
       </div>
-    </nav>
-  </header>
+      <div class="rail__scale">
+        <span id="railMin">—</span>
+        <span id="railMid" class="rail__scale-mid">—</span>
+        <span id="railMax">—</span>
+      </div>
+      <div class="rail__legend">
+        <span class="chip chip--median">Mediana</span>
+        <span class="chip chip--iqr">P25–P75</span>
+        <span class="chip chip--bench" id="railBenchChip">Referencia nacional</span>
+        <span class="chip chip--spread" id="railSpread">—</span>
+      </div>
+    </div>
+  </section>
 
-  <main class="max-w-7xl mx-auto px-6 py-8">
+  <!-- ══════════════ GRÁFICOS ══════════════ -->
+  <section class="grid-2">
+    <div class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">Tendencia por periodo</h2>
+        <p class="panel__sub">Promedio de cada producto en los periodos cargados.</p>
+      </div>
+      <div class="chartbox"><canvas id="chartTrend"></canvas><p class="empty" id="emptyTrend" hidden></p></div>
+    </div>
 
-    <!-- ══════════ MÓDULO 1 ══════════ -->
-    <section data-panel="resumen" class="space-y-6">
+    <div class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title" id="compareTitle">Comparativa</h2>
+        <p class="panel__sub" id="compareSub">Promedio del producto seleccionado.</p>
+      </div>
+      <div class="chartbox"><canvas id="chartCompare"></canvas><p class="empty" id="emptyCompare" hidden></p></div>
+    </div>
+  </section>
 
+  <section class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Distribución de precios</h2>
+      <p class="panel__sub">Número de estaciones en cada rango de precio del producto seleccionado.</p>
+    </div>
+    <div class="chartbox chartbox--short"><canvas id="chartHist"></canvas><p class="empty" id="emptyHist" hidden></p></div>
+  </section>
+
+  <!-- ══════════════ EXPLORADOR DE ESTACIONES ══════════════ -->
+  <section class="panel">
+    <div class="panel__head panel__head--row">
       <div>
-        <h2 class="font-display text-xl font-bold text-marino mb-3">Cuellos de botella</h2>
-        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3" id="alertas"></div>
+        <h2 class="panel__title">Explorador de estaciones</h2>
+        <p class="panel__sub" id="tableCount">—</p>
       </div>
-
-      <div>
-        <h2 class="font-display text-xl font-bold text-marino mb-3">Metas del proyecto</h2>
-        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4" id="tarjetasMetas"></div>
+      <div class="table-tools">
+        <input id="search" class="input input--search" type="search"
+               placeholder="Buscar por estación, permiso CRE, municipio o dirección" aria-label="Buscar estaciones">
+        <label class="switch">
+          <input type="checkbox" id="onlyProduct">
+          <span>Solo estaciones con el producto seleccionado</span>
+        </label>
       </div>
-
-      <div class="bg-white rounded-lg shadow-sm p-6">
-        <h2 class="font-display text-xl font-bold text-marino">Ruta crítica</h2>
-        <p class="text-sm text-slate-500 mt-1">Secuencia acordada con UNODC en la reunión del 22 de julio de 2026.</p>
-        <ol class="mt-6 space-y-5" id="ruta"></ol>
-      </div>
-    </section>
-
-    <!-- ══════════ MÓDULO 2 ══════════ -->
-    <section data-panel="vetting" class="hidden space-y-6">
-
-      <div>
-        <div class="flex flex-wrap items-end justify-between gap-4 mb-3">
-          <div>
-            <h2 class="font-display text-xl font-bold text-marino">Vetting por dependencia</h2>
-            <p class="text-sm text-slate-500">Avance acumulado de cada entidad ante la Embajada.</p>
-          </div>
-          <a href="https://docs.google.com/spreadsheets/d/1sufZxmUgFnd5M1a00EhyoM0VRbU0z4f5hs3cGbrA73g/edit?usp=drive_web" target="_blank" rel="noopener"
-             class="px-4 py-2 rounded bg-marino text-white text-sm font-medium hover:bg-[#00284F]">Capturar en la base master</a>
-        </div>
-        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3" id="porDependencia"></div>
-      </div>
-
-      <div class="bg-white rounded-lg shadow-sm p-6">
-        <h2 class="font-display text-xl font-bold text-marino">Beneficiarios registrados</h2>
-        <div class="grid gap-3 md:grid-cols-4 mt-4">
-          <input id="buscar" type="search" placeholder="Buscar por nombre, cargo o correo"
-                 class="md:col-span-2 border border-slate-300 rounded px-3 py-2 text-sm">
-          <select id="filtroDep" class="border border-slate-300 rounded px-3 py-2 text-sm"></select>
-          <select id="filtroEst" class="border border-slate-300 rounded px-3 py-2 text-sm"></select>
-        </div>
-
-        <div class="grid gap-3 sm:grid-cols-4 mt-4" id="contadoresVetting"></div>
-
-        <div class="mt-4 overflow-x-auto tabla-scroll">
-          <table class="w-full text-sm border-collapse">
-            <thead>
-              <tr class="bg-marino text-white text-left font-display uppercase text-[11px] tracking-wider">
-                <th class="px-3 py-2.5">ID</th>
-                <th class="px-3 py-2.5">Nombre</th>
-                <th class="px-3 py-2.5">Cargo</th>
-                <th class="px-3 py-2.5">Dependencia</th>
-                <th class="px-3 py-2.5">Tipo de rol</th>
-                <th class="px-3 py-2.5">Correo</th>
-                <th class="px-3 py-2.5">Estatus</th>
-                <th class="px-3 py-2.5">Límite</th>
-              </tr>
-            </thead>
-            <tbody id="cuerpoVetting"></tbody>
-          </table>
-        </div>
-        <p id="vacioVetting" class="hidden text-center text-sm text-slate-500 py-10">
-          Ningún registro coincide con el filtro. Ajuste la búsqueda o limpie los filtros.
-        </p>
-      </div>
-    </section>
-
-    <!-- ══════════ MÓDULO 3 ══════════ -->
-    <section data-panel="operativo" class="hidden space-y-6">
-
-      <div class="bg-white rounded-lg shadow-sm p-6">
-        <div class="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 class="font-display text-xl font-bold text-marino">Mesas de trabajo y capacitaciones</h2>
-            <p class="text-sm text-slate-500 mt-1">Sedes, alimentos y catering a cargo de UNODC conforme al acuerdo del 22/07/2026.</p>
-          </div>
-          <a href="https://docs.google.com/spreadsheets/d/1sufZxmUgFnd5M1a00EhyoM0VRbU0z4f5hs3cGbrA73g/edit?usp=drive_web" target="_blank" rel="noopener"
-             class="px-4 py-2 rounded bg-marino text-white text-sm font-medium hover:bg-[#00284F]">Registrar evento</a>
-        </div>
-        <div id="eventos" class="mt-4"></div>
-      </div>
-
-      <div class="bg-white rounded-lg shadow-sm p-6">
-        <h2 class="font-display text-xl font-bold text-marino">Estatus de aplicación del diagnóstico</h2>
-        <p class="text-sm text-slate-500 mt-1">Instrumento de 67 preguntas · meta de 25 cuestionarios en Jalisco.</p>
-        <div id="diagGlobal" class="mt-5"></div>
-        <h3 class="font-display text-sm font-bold text-marino uppercase tracking-wider mt-8 mb-3">Desglose por dependencia</h3>
-        <div id="diagDependencia"></div>
-      </div>
-
-      <div class="bg-white rounded-lg shadow-sm p-6">
-        <h2 class="font-display text-xl font-bold text-marino">Pendientes con UNODC</h2>
-        <ul class="mt-4 space-y-3" id="pendientesUnodc"></ul>
-      </div>
-    </section>
-  </main>
-
-  <footer class="max-w-7xl mx-auto px-6 pb-10 text-xs text-slate-500">
-    Coordinación General Estratégica de Seguridad · Dirección General de Análisis y Políticas Públicas ·
-    Tablero de trabajo interno, no constituye documento oficial del proyecto.
-  </footer>
-</div>
-
-<!-- ══════════════ REPORTE EJECUTIVO (solo impresión) ══════════════ -->
-<div id="reporte" class="font-sans text-slate-900">
-  <div class="rep-banda" style="padding:10px 14px;">
-    <div style="font-family:'Roboto Condensed',sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;">
-      UNODC · Gobierno del Estado de Jalisco · CGES
     </div>
-    <div style="font-family:'Roboto Condensed',sans-serif;font-size:26px;font-weight:700;line-height:1.1;">
-      RASTROS — Reporte ejecutivo semanal
+
+    <div class="tablebox">
+      <table class="table" id="table">
+        <thead>
+          <tr>
+            <th data-sort="estacion" class="is-sortable">Estación / Razón social</th>
+            <th data-sort="permiso" class="is-sortable">Permiso CRE</th>
+            <th data-sort="ubicacion" class="is-sortable">Ubicación</th>
+            <th data-sort="regular" class="is-sortable is-num">Regular</th>
+            <th data-sort="premium" class="is-sortable is-num">Premium</th>
+            <th data-sort="diesel" class="is-sortable is-num">Diésel</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <p class="empty" id="emptyTable" hidden>Sin resultados. Ajusta la búsqueda o los filtros.</p>
     </div>
-    <div style="font-size:11px;" id="repFecha"></div>
-  </div>
 
-  <div class="rep-corte" style="margin-top:14px;">
-    <h2 style="font-family:'Roboto Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #003366;padding-bottom:3px;">1. Estado de las metas</h2>
-    <div id="repMetas" style="margin-top:8px;"></div>
-  </div>
-
-  <div class="rep-corte" style="margin-top:16px;">
-    <h2 style="font-family:'Roboto Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #003366;padding-bottom:3px;">2. Vetting por dependencia</h2>
-    <div id="repVetting" style="margin-top:8px;"></div>
-  </div>
-
-  <div class="rep-corte" style="margin-top:16px;">
-    <h2 style="font-family:'Roboto Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #003366;padding-bottom:3px;">3. Alertas y pendientes con UNODC</h2>
-    <div id="repAlertas" style="margin-top:8px;"></div>
-  </div>
-
-  <div class="rep-corte" style="margin-top:16px;">
-    <h2 style="font-family:'Roboto Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #003366;padding-bottom:3px;">4. Próximos hitos</h2>
-    <div id="repHitos" style="margin-top:8px;"></div>
-  </div>
-
-  <div style="margin-top:18px;border-top:1px solid #999;padding-top:6px;font-size:9px;">
-    Documento de trabajo interno de la Dirección General de Análisis y Políticas Públicas.
-    No constituye documento oficial del Proyecto RASTROS. Fuente: base master RASTROS_UNODC_Master_DB.
-  </div>
-</div>
-
-<script>
-/* ═══════════════ CONFIGURACIÓN ═══════════════ */
-/* Valores de RESPALDO. En cuanto el servidor responde, los sustituye la
-   pestaña Configuracion_Dashboard. Solo se usan en la vista previa sin
-   conexión (GitHub Pages) o si la lectura falla. */
-let CONFIG = {
-  limite: new Date(2026, 6, 29),
-  metaDiagnostico: 25,
-  cuotaPorDependencia: 2,
-  diasCriticos: 3,
-  diasAtencion: 10
-};
-const HOJA_ID = '1sufZxmUgFnd5M1a00EhyoM0VRbU0z4f5hs3cGbrA73g';
-const FUENTES = [
-  'https://docs.google.com/spreadsheets/d/' + HOJA_ID + '/export?format=csv&gid=0',
-  'https://docs.google.com/spreadsheets/d/' + HOJA_ID + '/gviz/tq?tqx=out:csv&sheet=Vetting_Beneficiarios'
-];
-
-let DEPENDENCIAS = [
-  'Coordinación General Estratégica de Seguridad (CGES)',
-  'Secretaría de Seguridad del Estado de Jalisco',
-  'Fiscalía del Estado de Jalisco',
-  'Fiscalía Especializada en Trata de Personas',
-  'Policía Cibernética',
-  'Comisión Ejecutiva Estatal de Atención a Víctimas',
-  'Comisión de Búsqueda de Personas'
-];
-let ESTATUS = ['Pendiente', 'Enviado Embajada', 'Aprobado'];
-
-let CORTO = {
-  'Coordinación General Estratégica de Seguridad (CGES)': 'CGES',
-  'Secretaría de Seguridad del Estado de Jalisco': 'Secretaría de Seguridad',
-  'Fiscalía del Estado de Jalisco': 'Fiscalía del Estado',
-  'Fiscalía Especializada en Trata de Personas': 'Fiscalía Especializada',
-  'Policía Cibernética': 'Policía Cibernética',
-  'Comisión Ejecutiva Estatal de Atención a Víctimas': 'CEEAV',
-  'Comisión de Búsqueda de Personas': 'Comisión de Búsqueda'
-};
-
-let beneficiarios = [
-  ['Por designar', 'Enlace institucional', 0, 'Tomador de decisiones'],
-  ['Por designar', 'Titular o representante', 1, 'Tomador de decisiones'],
-  ['Por designar', 'Mando con vínculo operativo', 1, 'Operativo'],
-  ['Por designar', 'Titular o representante', 2, 'Tomador de decisiones'],
-  ['Por designar', 'Agente del Ministerio Público', 2, 'Operativo'],
-  ['Por designar', 'Titular de la Fiscalía Especializada', 3, 'Tomador de decisiones'],
-  ['Por designar', 'Investigador especializado', 3, 'Operativo'],
-  ['Por designar', 'Jefatura de unidad', 4, 'Tomador de decisiones'],
-  ['Por designar', 'Perito en evidencia digital', 4, 'Operativo'],
-  ['Por designar', 'Enlace de atención a víctimas', 5, 'Tomador de decisiones'],
-  ['Por designar', 'Enlace de búsqueda', 6, 'Tomador de decisiones']
-].map((r, i) => ({
-  id: 'RAS-VET-' + String(i + 1).padStart(3, '0'),
-  nombre: r[0], cargo: r[1], dependencia: DEPENDENCIAS[r[2]], rol: r[3],
-  correo: '', estatus: 'Pendiente'
-}));
-const RESPALDO_LOCAL = beneficiarios.slice();
-
-let METAS = [
-  { t: 'Meta 1 · Programas diseñados', d: 'Uno por país beneficiario', real: 0, obj: 3, jal: '1 en Jalisco' },
-  { t: 'Meta 2 · Funcionarios capacitados', d: 'Fuerzas del orden y fiscalías', real: 0, obj: 75, jal: '25 en Jalisco' },
-  { t: 'Meta 3 · Investigaciones TIP / OSO', d: 'Casos vinculados a estafas en línea', real: 0, obj: 15, jal: '5 en Jalisco' },
-  { t: 'Meta 4 · Redes de formadores', d: 'Redes ToT y 15 materiales', real: 0, obj: 3, jal: '1 en Jalisco' }
-];
-
-/* Ruta crítica y pendientes: respaldo local. La fuente real son las pestañas
-   Ruta_Critica y Pendientes_UNODC de la base master. */
-let RUTA = [
-  { id: 'H001', fecha: '29 de julio de 2026', actividad: 'Solicitud de vetting al personal de las unidades participantes', responsable: 'CGES', estatus: 'En Curso', notas: '', tono: 'activo' },
-  { id: 'H002', fecha: '29 de julio de 2026', actividad: 'Revisión del formulario de diagnóstico por tomadores de decisiones', responsable: 'CGES', estatus: 'En Curso', notas: '', tono: 'activo' },
-  { id: 'H003', fecha: '31 de julio de 2026', actividad: 'Confirmación de fecha y horario de la reunión presencial', responsable: 'CGES', estatus: 'Futuro', notas: '', tono: 'proximo' },
-  { id: 'H004', fecha: 'Semana del 24 de agosto de 2026', actividad: 'Reunión presencial con personal clave y mesas de trabajo', responsable: 'UNODC', estatus: 'Futuro', notas: '', tono: 'proximo' },
-  { id: 'H005', fecha: 'Septiembre de 2026', actividad: 'Aplicación en línea del formulario a todas las unidades', responsable: 'UNODC', estatus: 'Futuro', notas: '', tono: 'proximo' }
-];
-
-let PENDIENTES_UNODC = [
-  { id: 'P001', titulo: 'Anexo 3', descripcion: 'Confirmar si la Embajada lo requerirá, para anticiparlo en la planeación logística de los oficios.', responsable: 'UNODC', estatus: 'Pendiente', nivel: 'critica', vencimiento: '' },
-  { id: 'P002', titulo: 'Sede de las mesas de trabajo', descripcion: 'UNODC cubre alquiler, alimentos y coffee break. Falta definir el lugar.', responsable: 'UNODC', estatus: 'En Gestión', nivel: 'atencion', vencimiento: '' },
-  { id: 'P003', titulo: 'Proyección y pantalla', descripcion: 'Por confirmar con la sede una vez definida.', responsable: 'CGES', estatus: 'Pendiente', nivel: 'atencion', vencimiento: '' },
-  { id: 'P004', titulo: 'Reporte institucional de la capacitación', descripcion: 'Se gestiona internamente; UNODC apoya con los insumos que se requieran.', responsable: 'CGES', estatus: 'En Gestión', nivel: 'ok', vencimiento: '' }
-];
-
-let DIAG = { recibidas: 0, validadas: 0, meta: CONFIG.metaDiagnostico, porDependencia: [] };
-let EVENTOS = [];
-let AGRUPADO = [];
-let ALERTAS = [];
-let SELLO = '';
-
-/* ═══════════════ UTILIDADES ═══════════════ */
-const $ = s => document.querySelector(s);
-const esc = s => String(s === null || s === undefined ? '' : s)
-  .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const diasRestantes = () => {
-  const hoy = new Date();
-  const cero = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
-  return Math.round((CONFIG.limite - cero) / 864e5);
-};
-const corto = d => CORTO[d] || d;
-
-function hayBackend() {
-  return typeof google !== 'undefined' && google.script && google.script.run;
-}
-
-/* ═══════════════ AGREGADOS ═══════════════
-   Se calculan en el servidor cuando hay backend; aquí se replican para que
-   la vista previa y la lectura por CSV muestren lo mismo.
-   ───────────────────────────────────────── */
-function agruparPorDependencia(lista) {
-  const mapa = {};
-  DEPENDENCIAS.forEach(d => { mapa[d] = { dependencia: d, total: 0, pendiente: 0, enviado: 0, aprobado: 0, sinCorreo: 0 }; });
-  lista.forEach(b => {
-    const d = b.dependencia || 'Sin dependencia';
-    if (!mapa[d]) mapa[d] = { dependencia: d, total: 0, pendiente: 0, enviado: 0, aprobado: 0, sinCorreo: 0 };
-    mapa[d].total++;
-    if (b.estatus === 'Aprobado') mapa[d].aprobado++;
-    else if (b.estatus === 'Enviado Embajada') mapa[d].enviado++;
-    else mapa[d].pendiente++;
-    if (!b.correo) mapa[d].sinCorreo++;
-  });
-  return Object.keys(mapa).map(k => mapa[k]);
-}
-
-function calcularAlertas() {
-  const dias = diasRestantes();
-  const cuota = CONFIG.cuotaPorDependencia;
-  const total = beneficiarios.length;
-  const pend = beneficiarios.filter(b => b.estatus === 'Pendiente').length;
-  const sinCorreo = beneficiarios.filter(b => !b.correo).length;
-  const bajoCuota = AGRUPADO.filter(g => g.total < cuota);
-  const a = [];
-
-  a.push({
-    nivel: dias <= CONFIG.diasCriticos ? 'critica' : (dias <= CONFIG.diasAtencion ? 'atencion' : 'ok'),
-    titulo: 'Cierre de vetting',
-    cifra: dias > 0 ? dias + (dias === 1 ? ' día' : ' días') : (dias === 0 ? 'Hoy' : 'Vencido'),
-    detalle: pend + ' de ' + total + ' propuestas siguen en estatus Pendiente. Límite: ' + fechaLimiteTexto() + '.'
-  });
-
-  a.push({
-    nivel: bajoCuota.length ? 'critica' : 'ok',
-    titulo: 'Dependencias por debajo de cuota',
-    cifra: bajoCuota.length + ' de ' + AGRUPADO.length,
-    detalle: bajoCuota.length
-      ? 'Faltan propuestas en: ' + bajoCuota.map(g => corto(g.dependencia) + ' (' + g.total + '/' + cuota + ')').join(' · ')
-      : 'Todas las dependencias alcanzan la cuota de ' + cuota + ' propuestas.'
-  });
-
-  a.push({
-    nivel: sinCorreo ? 'critica' : 'ok',
-    titulo: 'Registros sin correo',
-    cifra: sinCorreo,
-    detalle: sinCorreo
-      ? 'El formato de la Embajada exige correo electrónico. Estos registros no pueden enviarse todavía.'
-      : 'Todos los registros tienen correo capturado.'
-  });
-
-  const criticoUnodc = PENDIENTES_UNODC.filter(p => p.nivel === 'critica');
-  a.push({
-    nivel: criticoUnodc.length ? 'critica' : (PENDIENTES_UNODC.length ? 'atencion' : 'ok'),
-    titulo: 'Pendientes con UNODC',
-    cifra: criticoUnodc.length || PENDIENTES_UNODC.length,
-    detalle: criticoUnodc.length
-      ? criticoUnodc.map(p => p.titulo + (p.responsable ? ' (' + p.responsable + ')' : '') +
-          ': ' + String(p.descripcion).split('.')[0] + '.').join(' ')
-      : (PENDIENTES_UNODC.length
-          ? PENDIENTES_UNODC.length + ' pendientes abiertos, ninguno crítico.'
-          : 'Sin pendientes abiertos.')
-  });
-
-  const porValidar = DIAG.recibidas - DIAG.validadas;
-  a.push({
-    nivel: DIAG.recibidas === 0 ? 'atencion' : (porValidar > 0 ? 'atencion' : 'ok'),
-    titulo: 'Diagnóstico',
-    cifra: DIAG.recibidas + ' / ' + DIAG.meta,
-    detalle: DIAG.recibidas === 0
-      ? 'Aún no se recibe ningún cuestionario. El instrumento se difunde tras la revisión de los tomadores de decisiones.'
-      : porValidar + ' cuestionarios pendientes de validar.'
-  });
-
-  a.push({
-    nivel: EVENTOS.length ? 'ok' : 'atencion',
-    titulo: 'Mesas y capacitaciones',
-    cifra: EVENTOS.length,
-    detalle: EVENTOS.length
-      ? 'Eventos programados en la base master.'
-      : 'No hay eventos capturados. Registre las mesas de la semana del 24 de agosto.'
-  });
-
-  return a;
-}
-
-function recalcularAgregados() {
-  AGRUPADO = agruparPorDependencia(beneficiarios);
-  ALERTAS = calcularAlertas();
-}
-
-/* ═══════════════ RENDER ═══════════════ */
-function fechaLimiteTexto() {
-  return CONFIG.limite.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
-function pintarEncabezado() {
-  const d = diasRestantes();
-  $('#cuenta').textContent = d > 0 ? d + (d === 1 ? ' día restante' : ' días restantes')
-    : (d === 0 ? 'Vence hoy' : 'Plazo vencido hace ' + Math.abs(d) + ' días');
-  $('#mLimite').textContent = fechaLimiteTexto();
-  const b = $('#bannerLimite');
-  b.className = 'text-white ' + (d <= CONFIG.diasCriticos ? 'bg-alerta'
-    : (d <= CONFIG.diasAtencion ? 'bg-ambar' : 'bg-verde'));
-}
-
-const TONO = {
-  critica: { borde: 'border-alerta', punto: 'bg-alerta', texto: 'text-alerta' },
-  atencion: { borde: 'border-ambar', punto: 'bg-ambar', texto: 'text-ambar' },
-  ok: { borde: 'border-verde', punto: 'bg-verde', texto: 'text-verde' }
-};
-
-function pintarAlertas() {
-  $('#alertas').innerHTML = ALERTAS.map(a => {
-    const t = TONO[a.nivel] || TONO.ok;
-    return `<div class="bg-white rounded-lg shadow-sm border-l-4 ${t.borde} p-5">
-      <div class="flex items-start justify-between gap-3">
-        <p class="font-display text-xs uppercase tracking-widest text-slate-500">${esc(a.titulo)}</p>
-        <span class="h-2 w-2 rounded-full shrink-0 mt-1 ${t.punto}"></span>
-      </div>
-      <p class="font-display text-3xl font-bold ${t.texto} mt-1">${esc(a.cifra)}</p>
-      <p class="text-xs text-slate-600 mt-2 leading-relaxed">${esc(a.detalle)}</p>
-    </div>`;
-  }).join('');
-}
-
-function pintarMetas() {
-  $('#tarjetasMetas').innerHTML = METAS.map(m => {
-    const pct = Math.min(Math.round(m.real / m.obj * 100), 100);
-    const sem = pct >= 100 ? 'ok' : (pct >= 50 ? 'atencion' : (pct > 0 ? 'atencion' : 'critica'));
-    const etq = pct >= 100 ? 'CUMPLIDA' : (pct >= 50 ? 'EN AVANCE' : (pct > 0 ? 'INICIADA' : 'SIN AVANCE'));
-    const t = TONO[sem];
-    return `<div class="bg-white rounded-lg shadow-sm p-5">
-      <div class="flex items-start justify-between gap-2">
-        <p class="font-display text-xs uppercase tracking-widest text-unodc">${esc(m.t.split('·')[0].trim())}</p>
-        <span class="text-[10px] font-medium px-2 py-0.5 rounded ${t.punto} text-white whitespace-nowrap">${etq}</span>
-      </div>
-      <p class="font-display text-lg font-bold text-marino leading-tight mt-1">${esc(m.t.split('·')[1].trim())}</p>
-      <p class="text-xs text-slate-500 mt-1">${esc(m.d)}</p>
-      <p class="font-display text-4xl font-bold text-marino mt-4">${m.real}<span class="text-slate-400 text-2xl"> / ${m.obj}</span></p>
-      <div class="h-1.5 bg-humo rounded mt-3"><div class="barra h-1.5 bg-unodc rounded" style="width:${pct}%"></div></div>
-      <p class="text-[11px] text-slate-500 mt-2">${esc(m.jal)} · avance ${pct}%</p>
-    </div>`;
-  }).join('');
-}
-
-function pintarRuta() {
-  const col = { activo: 'bg-unodc', proximo: 'bg-slate-300', hecho: 'bg-verde' };
-  $('#ruta').innerHTML = RUTA.map(r => `<li class="flex gap-4">
-    <span class="mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${col[r.tono] || 'bg-slate-300'}"></span>
-    <div class="min-w-0">
-      <p class="font-display text-xs uppercase tracking-widest text-slate-400">
-        ${esc(r.fecha)}${r.responsable ? ' · ' + esc(r.responsable) : ''}
-        <span class="ml-1 normal-case tracking-normal ${r.tono === 'hecho' ? 'text-verde' : (r.tono === 'activo' ? 'text-unodc' : 'text-slate-400')}">${esc(r.estatus)}</span>
-      </p>
-      <p class="text-slate-800 ${r.tono === 'hecho' ? 'line-through text-slate-400' : ''}">${esc(r.actividad)}</p>
-      ${r.notas ? `<p class="text-xs text-slate-500 mt-0.5">${esc(r.notas)}</p>` : ''}
-    </div></li>`).join('');
-}
-
-function pintarPorDependencia() {
-  $('#porDependencia').innerHTML = AGRUPADO.map(g => {
-    const pct = g.total ? Math.round(g.aprobado / g.total * 100) : 0;
-    const nivel = g.total === 0 ? 'critica' : (g.aprobado === g.total ? 'ok' : 'atencion');
-    const t = TONO[nivel];
-    return `<div class="bg-white rounded-lg shadow-sm border-l-4 ${t.borde} p-5">
-      <p class="font-display text-base font-bold text-marino leading-tight">${esc(corto(g.dependencia))}</p>
-      <p class="text-[11px] text-slate-400 mt-0.5">${g.total} propuesta${g.total === 1 ? '' : 's'} · cuota ${CONFIG.cuotaPorDependencia}</p>
-      <div class="grid grid-cols-3 gap-2 mt-4 text-center">
-        <div class="bg-humo rounded py-2">
-          <p class="font-display text-2xl font-bold text-alerta">${g.pendiente}</p>
-          <p class="text-[10px] uppercase tracking-wide text-slate-500">Pendiente</p></div>
-        <div class="bg-humo rounded py-2">
-          <p class="font-display text-2xl font-bold text-ambar">${g.enviado}</p>
-          <p class="text-[10px] uppercase tracking-wide text-slate-500">Embajada</p></div>
-        <div class="bg-humo rounded py-2">
-          <p class="font-display text-2xl font-bold text-verde">${g.aprobado}</p>
-          <p class="text-[10px] uppercase tracking-wide text-slate-500">Aprobado</p></div>
-      </div>
-      <div class="h-1.5 bg-humo rounded mt-4"><div class="barra h-1.5 bg-verde rounded" style="width:${pct}%"></div></div>
-      ${g.sinCorreo ? `<p class="text-[11px] text-alerta mt-2">${g.sinCorreo} sin correo capturado</p>` : ''}
-    </div>`;
-  }).join('');
-}
-
-function llenarSelect(sel, opciones, todos) {
-  sel.innerHTML = (todos ? `<option value="">${todos}</option>` : '') +
-    opciones.map(o => `<option>${esc(o)}</option>`).join('');
-}
-llenarSelect($('#filtroDep'), DEPENDENCIAS, 'Todas las dependencias');
-llenarSelect($('#filtroEst'), ESTATUS, 'Todos los estatus');
-
-function pintarVetting() {
-  const q = $('#buscar').value.toLowerCase().trim();
-  const dep = $('#filtroDep').value, est = $('#filtroEst').value;
-  const filas = beneficiarios.filter(b =>
-    (!dep || b.dependencia === dep) && (!est || b.estatus === est) &&
-    (!q || (b.nombre + b.cargo + b.correo).toLowerCase().includes(q)));
-
-  const badge = { 'Pendiente': 'bg-alerta text-white', 'Enviado Embajada': 'bg-ambar text-[#3D2B00]', 'Aprobado': 'bg-verde text-white' };
-  $('#cuerpoVetting').innerHTML = filas.map((b, i) => `<tr class="${i % 2 ? 'bg-humo' : 'bg-white'} border-b border-slate-100">
-      <td class="px-3 py-2.5 font-mono text-xs text-slate-500">${esc(b.id)}</td>
-      <td class="px-3 py-2.5 font-medium">${esc(b.nombre)}</td>
-      <td class="px-3 py-2.5 text-slate-600">${esc(b.cargo)}</td>
-      <td class="px-3 py-2.5 text-slate-600">${esc(corto(b.dependencia))}</td>
-      <td class="px-3 py-2.5 text-slate-600">${esc(b.rol)}</td>
-      <td class="px-3 py-2.5 ${b.correo ? 'text-unodc' : 'text-alerta'}">${esc(b.correo || 'sin correo')}</td>
-      <td class="px-3 py-2.5"><span class="px-2 py-1 rounded text-[11px] font-medium ${badge[b.estatus] || ''}">${esc(b.estatus)}</span></td>
-      <td class="px-3 py-2.5 text-slate-500 whitespace-nowrap">29/07/2026</td>
-    </tr>`).join('');
-  $('#vacioVetting').classList.toggle('hidden', filas.length > 0);
-
-  const c = e => beneficiarios.filter(b => b.estatus === e).length;
-  $('#contadoresVetting').innerHTML = [
-    ['Propuestas registradas', beneficiarios.length, 'text-marino'],
-    ['Pendiente', c('Pendiente'), 'text-alerta'],
-    ['Enviado Embajada', c('Enviado Embajada'), 'text-ambar'],
-    ['Aprobado', c('Aprobado'), 'text-verde']
-  ].map(t => `<div class="bg-humo rounded px-4 py-3">
-       <p class="text-[11px] uppercase tracking-widest text-slate-500">${esc(t[0])}</p>
-       <p class="font-display text-3xl font-bold ${t[2]}">${t[1]}</p></div>`).join('');
-}
-['#buscar', '#filtroDep', '#filtroEst'].forEach(s => $(s).addEventListener('input', pintarVetting));
-
-function pintarEventos() {
-  const cont = $('#eventos');
-  if (!EVENTOS.length) {
-    cont.innerHTML = '<p class="text-sm text-slate-500 py-6 text-center">' +
-      'Aún no hay eventos capturados. Regístrelos en la base master para verlos aquí.</p>';
-    return;
-  }
-  const badge = { 'Confirmado': 'bg-verde text-white', 'Cubierto': 'bg-verde text-white',
-                  'Solicitado a UNODC': 'bg-ambar text-[#3D2B00]', 'No requerido': 'bg-slate-200 text-slate-700' };
-  cont.innerHTML = '<div class="overflow-x-auto tabla-scroll"><table class="w-full text-sm border-collapse">' +
-    '<thead><tr class="bg-marino text-white text-left font-display uppercase text-[11px] tracking-wider">' +
-    '<th class="px-3 py-2.5">ID</th><th class="px-3 py-2.5">Tipo</th><th class="px-3 py-2.5">Fecha</th>' +
-    '<th class="px-3 py-2.5">Sede</th><th class="px-3 py-2.5">Catering</th>' +
-    '<th class="px-3 py-2.5">Asistentes</th><th class="px-3 py-2.5">Acuerdos</th></tr></thead><tbody>' +
-    EVENTOS.map((e, i) => `<tr class="${i % 2 ? 'bg-humo' : 'bg-white'} border-b border-slate-100">
-      <td class="px-3 py-2.5 font-mono text-xs text-slate-500">${esc(e.id)}</td>
-      <td class="px-3 py-2.5 font-medium">${esc(e.tipo)}</td>
-      <td class="px-3 py-2.5 whitespace-nowrap">${esc(e.fecha || '—')}</td>
-      <td class="px-3 py-2.5 text-slate-600">${esc(e.sede || '—')}</td>
-      <td class="px-3 py-2.5"><span class="px-2 py-1 rounded text-[11px] font-medium ${badge[e.catering] || 'bg-slate-200 text-slate-700'}">${esc(e.catering || '—')}</span></td>
-      <td class="px-3 py-2.5 text-center">${esc(e.asistentes || 0)}</td>
-      <td class="px-3 py-2.5 text-slate-600">${esc(e.acuerdos)}${e.minuta ? ' <a class="text-unodc underline" target="_blank" rel="noopener" href="' + esc(e.minuta) + '">minuta</a>' : ''}</td>
-    </tr>`).join('') + '</tbody></table></div>';
-}
-
-function pintarDiagnostico() {
-  const pct = DIAG.meta ? Math.min(Math.round(DIAG.recibidas / DIAG.meta * 100), 100) : 0;
-  const pctVal = DIAG.meta ? Math.min(Math.round(DIAG.validadas / DIAG.meta * 100), 100) : 0;
-  $('#diagGlobal').innerHTML = `
-    <div class="grid gap-4 sm:grid-cols-3">
-      <div class="bg-humo rounded px-4 py-3">
-        <p class="text-[11px] uppercase tracking-widest text-slate-500">Recibidos</p>
-        <p class="font-display text-3xl font-bold text-marino">${DIAG.recibidas}<span class="text-slate-400 text-xl"> / ${DIAG.meta}</span></p></div>
-      <div class="bg-humo rounded px-4 py-3">
-        <p class="text-[11px] uppercase tracking-widest text-slate-500">Validados</p>
-        <p class="font-display text-3xl font-bold text-verde">${DIAG.validadas}</p></div>
-      <div class="bg-humo rounded px-4 py-3">
-        <p class="text-[11px] uppercase tracking-widest text-slate-500">Por validar</p>
-        <p class="font-display text-3xl font-bold text-ambar">${Math.max(DIAG.recibidas - DIAG.validadas, 0)}</p></div>
+    <div class="pager">
+      <button class="btn btn--ghost" id="prevPage" type="button">Anterior</button>
+      <span id="pageInfo" class="pager__info">—</span>
+      <button class="btn btn--ghost" id="nextPage" type="button">Siguiente</button>
     </div>
-    <div class="mt-5">
-      <div class="flex justify-between text-xs mb-1">
-        <span class="text-slate-600">Avance sobre la meta de ${DIAG.meta} cuestionarios</span>
-        <span class="font-display font-bold text-marino">${pct}%</span></div>
-      <div class="h-3 bg-humo rounded relative overflow-hidden">
-        <div class="barra h-3 bg-unodc rounded absolute inset-y-0 left-0" style="width:${pct}%"></div>
-        <div class="barra h-3 bg-verde rounded absolute inset-y-0 left-0" style="width:${pctVal}%"></div>
-      </div>
-      <p class="text-[11px] text-slate-500 mt-2">Azul: recibidos · Verde: validados</p>
-    </div>`;
+  </section>
+</main>
 
-  const cont = $('#diagDependencia');
-  if (!DIAG.porDependencia || !DIAG.porDependencia.length) {
-    cont.innerHTML = '<p class="text-sm text-slate-500 py-4">Sin cuestionarios recibidos. ' +
-      'El desglose aparecerá conforme las dependencias respondan el instrumento.</p>';
-    return;
-  }
-  cont.innerHTML = DIAG.porDependencia.map(d => {
-    const p = d.recibidas ? Math.round(d.validadas / d.recibidas * 100) : 0;
-    return `<div class="mb-3">
-      <div class="flex justify-between text-xs mb-1">
-        <span class="text-slate-700">${esc(corto(d.dependencia))}</span>
-        <span class="text-slate-500">${d.validadas} validados de ${d.recibidas} recibidos</span></div>
-      <div class="h-2.5 bg-humo rounded"><div class="barra h-2.5 bg-verde rounded" style="width:${p}%"></div></div>
-    </div>`;
-  }).join('');
-}
+<!-- ══════════════ PIE INSTITUCIONAL ══════════════ -->
+<footer class="footer">
+  <div class="wrap footer__inner">
+    <p class="footer__source" id="footerMethod"></p>
+    <p class="footer__notes">
+      Notas: excluye zonas fronterizas con estímulo fiscal. El indicador de ganancia de las compañías
+      importadoras incluye el margen al mayoreo e incluye descuentos en TAR. Precios expresados en pesos por litro.
+    </p>
+    <p class="footer__meta">
+      <a id="repoLink" href="#" rel="noopener">Repositorio del proyecto</a>
+      <span class="footer__dot">·</span>
+      <span id="footerUpdated">—</span>
+    </p>
+  </div>
+</footer>
 
-function pintarPendientes() {
-  const cont = $('#pendientesUnodc');
-  if (!PENDIENTES_UNODC.length) {
-    cont.innerHTML = '<li class="text-sm text-slate-500 py-4">Sin pendientes abiertos. ' +
-      'Los marcados como Resuelto en la base master dejan de aparecer aquí.</li>';
-    return;
-  }
-  cont.innerHTML = PENDIENTES_UNODC.map(p => {
-    const t = TONO[p.nivel] || TONO.atencion;
-    const venc = p.vencimiento
-      ? `<span class="ml-2 ${typeof p.diasVencimiento === 'number' && p.diasVencimiento < 0 ? 'text-alerta font-medium' : 'text-slate-500'}">vence ${esc(p.vencimiento)}${typeof p.diasVencimiento === 'number' && p.diasVencimiento < 0 ? ' (vencido)' : ''}</span>`
-      : '';
-    return `<li class="border-l-4 ${t.borde} pl-4 py-1">
-      <div class="flex flex-wrap items-baseline gap-x-2">
-        <p class="font-medium text-marino">${esc(p.titulo)}</p>
-        <span class="text-[11px] uppercase tracking-wider ${t.texto}">${esc(p.estatus)}</span>
-        ${p.responsable ? `<span class="text-[11px] text-slate-500">· ${esc(p.responsable)}</span>` : ''}
-      </div>
-      <p class="text-sm text-slate-600 mt-0.5">${esc(p.descripcion)}${venc}</p></li>`;
-  }).join('');
-}
+<div class="tooltip" id="tooltip" role="status" hidden></div>
 
-/* ═══════════════ REPORTE EJECUTIVO ═══════════════ */
-function armarReporte() {
-  const f = new Date();
-  $('#repFecha').textContent = 'Generado el ' + f.toLocaleDateString('es-MX',
-    { day: '2-digit', month: 'long', year: 'numeric' }) +
-    (SELLO ? ' · datos de la base master al ' + SELLO : ' · vista previa sin conexión a la base master');
-
-  const tabla = (cabeceras, filas) =>
-    '<table class="rep-tabla" style="width:100%;border-collapse:collapse;font-size:10px;">' +
-    '<thead><tr>' + cabeceras.map(c =>
-      '<th style="border:1px solid #999;padding:4px 6px;text-align:left;font-family:\'Roboto Condensed\',sans-serif;text-transform:uppercase;font-size:9px;">' + c + '</th>').join('') +
-    '</tr></thead><tbody>' + filas.map(f =>
-      '<tr>' + f.map(c => '<td style="border:1px solid #999;padding:4px 6px;">' + c + '</td>').join('') + '</tr>').join('') +
-    '</tbody></table>';
-
-  $('#repMetas').innerHTML = tabla(
-    ['Meta', 'Objetivo global', 'Objetivo Jalisco', 'Real', 'Avance', 'Estatus'],
-    METAS.map(m => {
-      const pct = Math.min(Math.round(m.real / m.obj * 100), 100);
-      const etq = pct >= 100 ? 'Cumplida' : (pct >= 50 ? 'En avance' : (pct > 0 ? 'Iniciada' : 'Sin avance'));
-      return [esc(m.t), m.obj, esc(m.jal), m.real, pct + '%', etq];
-    }));
-
-  $('#repVetting').innerHTML = tabla(
-    ['Dependencia', 'Total', 'Pendiente', 'Enviado a Embajada', 'Aprobado', 'Sin correo'],
-    AGRUPADO.map(g => [esc(corto(g.dependencia)), g.total, g.pendiente, g.enviado, g.aprobado, g.sinCorreo])
-  ) + '<p style="font-size:9px;margin-top:5px;">Cuota de referencia: ' + CONFIG.cuotaPorDependencia +
-      ' propuestas por dependencia. Fecha límite de envío: ' + fechaLimiteTexto() +
-      ' (' + diasRestantes() + ' días).</p>';
-
-  $('#repAlertas').innerHTML =
-    '<ul style="margin:0;padding-left:16px;font-size:10px;line-height:1.5;">' +
-    ALERTAS.filter(a => a.nivel !== 'ok').map(a =>
-      '<li><strong>' + esc(a.titulo) + ' (' + esc(a.cifra) + '):</strong> ' + esc(a.detalle) + '</li>').join('') +
-    PENDIENTES_UNODC.map(p =>
-      '<li><strong>' + esc(p.titulo) + '</strong>' +
-      (p.responsable ? ' [' + esc(p.responsable) + ']' : '') +
-      ' — ' + esc(p.estatus) + ': ' + esc(p.descripcion) +
-      (p.vencimiento ? ' (vence ' + esc(p.vencimiento) + ')' : '') + '</li>').join('') +
-    '</ul>';
-
-  const hitos = RUTA.filter(r => r.estatus !== 'Completado');
-  $('#repHitos').innerHTML = tabla(['Fecha', 'Hito', 'Responsable', 'Estatus'],
-    hitos.map(r => [esc(r.fecha), esc(r.actividad), esc(r.responsable), esc(r.estatus)])) +
-    (EVENTOS.length
-      ? '<p style="font-size:10px;margin-top:6px;"><strong>Eventos registrados:</strong> ' +
-        EVENTOS.map(e => esc(e.tipo) + ' — ' + esc(e.fecha)).join(' · ') + '</p>'
-      : '');
-}
-
-$('#btnReporte').addEventListener('click', () => { armarReporte(); window.print(); });
-
-/* ═══════════════ ORIGEN DE DATOS ═══════════════
-   Cascada: google.script.run → CSV público → respaldo local.
-   ───────────────────────────────────────────── */
-function marcarOrigen(estado, detalle) {
-  const b = $('#badgeOrigen');
-  b.className = 'h-2.5 w-2.5 rounded-full ' +
-    ({ script: 'bg-verde', csv: 'bg-verde', local: 'bg-alerta', cargando: 'bg-slate-400 animate-pulse' }[estado]);
-  b.title = ({
-    script: 'Conectado a la base master',
-    csv: 'Conectado por CSV publicado',
-    local: 'Sin conexión — mostrando estructura local',
-    cargando: 'Consultando la base master…'
-  }[estado]) + (detalle ? ' · ' + detalle : '') + ' (pulse para reintentar)';
-}
-
-function repintarTodo() {
-  recalcularAgregados();
-  pintarEncabezado(); pintarAlertas(); pintarMetas(); pintarRuta();
-  pintarPorDependencia(); pintarVetting(); pintarEventos();
-  pintarDiagnostico(); pintarPendientes();
-}
-
-function parsearCSV(texto) {
-  const filas = []; let campo = '', fila = [], comillas = false;
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto[i];
-    if (comillas) {
-      if (c === '"' && texto[i + 1] === '"') { campo += '"'; i++; }
-      else if (c === '"') comillas = false;
-      else campo += c;
-    } else if (c === '"') comillas = true;
-    else if (c === ',') { fila.push(campo); campo = ''; }
-    else if (c === '\n') { fila.push(campo); filas.push(fila); fila = []; campo = ''; }
-    else if (c !== '\r') campo += c;
-  }
-  if (campo !== '' || fila.length) { fila.push(campo); filas.push(fila); }
-  return filas.filter(f => f.some(v => v.trim() !== ''));
-}
-
-function mapearFilas(filas) {
-  const enc = filas[0].map(h => h.trim());
-  const idx = n => enc.indexOf(n);
-  if (idx('Nombre') === -1 || idx('Estatus_Vetting') === -1) {
-    throw new Error('La hoja no contiene los encabezados de Vetting_Beneficiarios.');
-  }
-  const val = (f, n) => (idx(n) === -1 ? '' : (f[idx(n)] || '').trim());
-  return filas.slice(1)
-    .filter(f => val(f, 'Nombre') !== '')
-    .map((f, i) => ({
-      id: val(f, 'ID_Beneficiario') || 'RAS-VET-' + String(i + 1).padStart(3, '0'),
-      nombre: val(f, 'Nombre'), cargo: val(f, 'Cargo'),
-      dependencia: val(f, 'Dependencia'), rol: val(f, 'Tipo_Rol'),
-      correo: val(f, 'Correo'),
-      estatus: ESTATUS.indexOf(val(f, 'Estatus_Vetting')) !== -1 ? val(f, 'Estatus_Vetting') : 'Pendiente'
-    }));
-}
-
-function aplicarPayload(p) {
-  if (!p || !p.ok) return respaldarLocal();
-
-  /* --- Capa dinámica: parámetros, textos y catálogos --------------------- */
-  if (p.configuracion) {
-    const c = p.configuracion;
-    if (c.fechaLimiteISO) {
-      const [a, m, d] = c.fechaLimiteISO.split('-').map(Number);
-      if (a && m && d) CONFIG.limite = new Date(a, m - 1, d);
-    }
-    if (typeof c.cuotaPorDependencia === 'number') CONFIG.cuotaPorDependencia = c.cuotaPorDependencia;
-    if (typeof c.metaDiagnostico === 'number') CONFIG.metaDiagnostico = c.metaDiagnostico;
-    if (typeof c.diasCriticos === 'number') CONFIG.diasCriticos = c.diasCriticos;
-    if (typeof c.diasAtencion === 'number') CONFIG.diasAtencion = c.diasAtencion;
-  }
-  if (p.metadatos) aplicarMetadatos(p.metadatos);
-  if (p.abreviaturas && Object.keys(p.abreviaturas).length) CORTO = p.abreviaturas;
-  if (p.catalogos) {
-    if (Array.isArray(p.catalogos.Dependencia) && p.catalogos.Dependencia.length) {
-      DEPENDENCIAS = p.catalogos.Dependencia.filter(d => d !== 'Otra');
-      llenarSelect($('#filtroDep'), DEPENDENCIAS, 'Todas las dependencias');
-    }
-    if (Array.isArray(p.catalogos.Estatus_Vetting) && p.catalogos.Estatus_Vetting.length) {
-      ESTATUS = p.catalogos.Estatus_Vetting;
-      llenarSelect($('#filtroEst'), ESTATUS, 'Todos los estatus');
-    }
-  }
-  if (Array.isArray(p.pendientesUnodc)) PENDIENTES_UNODC = p.pendientesUnodc;
-  if (Array.isArray(p.rutaCritica) && p.rutaCritica.length) RUTA = p.rutaCritica;
-
-  /* --- Datos operativos -------------------------------------------------- */
-  if (Array.isArray(p.beneficiarios)) beneficiarios = p.beneficiarios;
-  if (Array.isArray(p.eventos)) EVENTOS = p.eventos;
-  if (p.diagnostico) DIAG = Object.assign({ meta: CONFIG.metaDiagnostico, porDependencia: [] }, p.diagnostico);
-  if (Array.isArray(p.metas)) {
-    p.metas.forEach((m, i) => {
-      if (!METAS[i]) return;
-      if (typeof m.real === 'number') METAS[i].real = m.real;
-      if (m.nombre) METAS[i].t = m.nombre.replace(/^Meta (\d+): /, 'Meta $1 · ');
-      if (m.descripcion) METAS[i].d = m.descripcion;
-      if (typeof m.objetivo === 'number' && m.objetivo > 0) METAS[i].obj = m.objetivo;
-      if (m.objetivoJalisco !== undefined && m.objetivoJalisco !== '') {
-        METAS[i].jal = m.objetivoJalisco + ' en Jalisco';
-      }
-      if (m.fuente) METAS[i].fuente = m.fuente;
-    });
-  }
-  SELLO = p.actualizado || '';
-
-  recalcularAgregados();
-  // El servidor manda los agregados ya procesados; si vienen, mandan ellos.
-  if (Array.isArray(p.porDependencia) && p.porDependencia.length) AGRUPADO = p.porDependencia;
-  if (Array.isArray(p.alertas) && p.alertas.length) ALERTAS = p.alertas;
-
-  pintarEncabezado(); pintarAlertas(); pintarMetas(); pintarRuta();
-  pintarPorDependencia(); pintarVetting(); pintarEventos();
-  pintarDiagnostico(); pintarPendientes();
-  marcarOrigen('script', beneficiarios.length + ' registros');
-}
-
-/** Inyecta los textos del encabezado desde Metadatos_Proyecto. */
-function aplicarMetadatos(m) {
-  const poner = (sel, valor) => { if (valor) $(sel).textContent = valor; };
-  poner('#mTitulo', m.Titulo_Proyecto);
-  poner('#mSubtitulo', m.Subtitulo);
-  poner('#mFase', m.Fase_Actual);
-  if (m.Institucion_Ejecutora || m.Institucion_Contraparte) {
-    $('#mEyebrow').textContent = [m.Institucion_Ejecutora, m.Institucion_Contraparte]
-      .filter(Boolean).join(' · ');
-  }
-  if (m.Periodo || m.Paises) {
-    $('#mPeriodo').textContent = [m.Periodo, m.Paises].filter(Boolean).join(' · ');
-  }
-  if (m.Titulo_Proyecto) document.title = m.Titulo_Proyecto + ' · Panel ejecutivo';
-}
-
-function respaldarLocal() {
-  beneficiarios = RESPALDO_LOCAL.slice();
-  EVENTOS = []; SELLO = '';
-  DIAG = { recibidas: 0, validadas: 0, meta: CONFIG.metaDiagnostico, porDependencia: [] };
-  repintarTodo();
-  marcarOrigen('local');
-}
-
-async function intentarCSV() {
-  for (const url of FUENTES) {
-    try {
-      const r = await fetch(url, { redirect: 'follow' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const filas = parsearCSV(await r.text());
-      if (filas.length < 2) throw new Error('Sin registros.');
-      beneficiarios = mapearFilas(filas);
-      repintarTodo();
-      marcarOrigen('csv', beneficiarios.length + ' registros');
-      return true;
-    } catch (e) {
-      console.warn('Lectura CSV fallida en ' + url + ': ' + e.message);
-    }
-  }
-  return false;
-}
-
-async function cargarRemoto() {
-  marcarOrigen('cargando');
-  if (hayBackend()) {
-    google.script.run
-      .withSuccessHandler(aplicarPayload)
-      .withFailureHandler(e => { console.warn(e && e.message); respaldarLocal(); })
-      .obtenerDatosTablero();
-    return;
-  }
-  if (await intentarCSV()) return;
-  respaldarLocal();
-}
-
-$('#badgeOrigen').addEventListener('click', cargarRemoto);
-
-/* ═══════════════ NAVEGACIÓN ═══════════════ */
-const tabs = document.querySelectorAll('.tab');
-function activar(nombre) {
-  document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== nombre));
-  tabs.forEach(t => {
-    const on = t.dataset.tab === nombre;
-    t.classList.toggle('border-unodc', on);
-    t.classList.toggle('text-white', on);
-    t.classList.toggle('border-transparent', !on);
-    t.classList.toggle('text-slate-300', !on);
-    t.setAttribute('aria-selected', on);
-  });
-}
-tabs.forEach(t => t.addEventListener('click', () => activar(t.dataset.tab)));
-activar('resumen');
-
-repintarTodo();
-cargarRemoto();
-</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
