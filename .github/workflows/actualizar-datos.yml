@@ -1,1 +1,71 @@
+name: Actualizar precios de combustibles
+
+"on":
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 13 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Descargar el XML oficial de la CNE
+        run: curl -fsSL --retry 3 -o precios_del_dia.xml "${{ vars.URL_XML }}"
+
+      - name: Convertir a CSV y acumular histórico
+        run: |
+          python3 xml_a_csv.py precios_del_dia.xml \
+                  --catalogo catalogo_estaciones.csv \
+                  --salida fallback.csv \
+                  --acumular --conservar 3 \
+                  --historico historico.csv --historico-conservar 120
+
+      - name: Publicar si hubo cambios
+        run: |
+          rm -f precios_del_dia.xml
+          if git diff --quiet -- fallback.csv historico.csv; then
+            echo "Sin cambios: la fecha ya estaba cargada."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add fallback.csv historico.csv
+          git commit -m "Precios $(date -u +%Y-%m-%d)"
+          git push
+
+# ---------------------------------------------------------------
+#  NOTAS (van al final para que nada estorbe al pegar el archivo)
+#
+#  Ruta obligatoria dentro del repositorio:
+#      .github/workflows/actualizar-datos.yml
+#
+#  Antes de la primera corrida:
+#    1. Settings > Secrets and variables > Actions > Variables
+#       Crea URL_XML con la ruta directa del XML de la CNE.
+#    2. Settings > Actions > General > Workflow permissions:
+#       marca "Read and write permissions".
+#
+#  Prueba manual: pestaña Actions > el flujo > Run workflow.
+#  El horario 13:00 UTC equivale a las 07:00 del centro de Mexico.
+#
+#  Sobre los dos archivos de datos:
+#    fallback.csv   padron completo. --conservar 3 mantiene solo los ultimos
+#                   tres cortes: son ~13,800 filas por dia (750 KB), asi que
+#                   guardar 60 dias completos serian ~45 MB, demasiado para
+#                   que el navegador los cargue y para el propio repositorio.
+#    historico.csv  promedios diarios por ambito y producto: unos 3 KB por
+#                   corte. Es el que alimenta la grafica de tendencia y el
+#                   delta de las tarjetas KPI, y por eso conserva 120 dias.
+# ---------------------------------------------------------------
 
