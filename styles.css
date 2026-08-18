@@ -5,6 +5,11 @@
 
 /* ---------- Tokens ---------- */
 :root{
+  /* Identidad LB GAS 23 · Servicio Bautista */
+  --brand:#1E3A5F;         /* azul marino petróleo, color primario del logotipo */
+  --brand-deep:#162840;    /* sombra corporativa */
+  --brand-mid:#234165;     /* variante media para superficies y bordes */
+
   --regular:#10B981;  --regular-soft:rgba(16,185,129,.14);
   --premium:#E11D48;  --premium-soft:rgba(225,29,72,.14);
   --diesel:#D8A64A;   --diesel-soft:rgba(216,166,74,.16);
@@ -20,27 +25,35 @@
 }
 
 html[data-theme="dark"]{
-  --bg:#080D18;
+  --bg:#0A111E;
   --bg-grid:rgba(148,178,220,.05);
-  --surface:#0F1727;
-  --surface-2:#16203A;
-  --line:rgba(150,178,220,.14);
-  --line-strong:rgba(150,178,220,.26);
+  --surface:#131F33;
+  --surface-2:#1C2C47;
+  --line:rgba(148,178,220,.15);
+  --line-strong:rgba(148,178,220,.28);
   --text:#E9EEF8;
-  --muted:#8A9CB8;
+  --muted:#8FA2BE;
   --accent:#D8A64A;
+  --brand-line:rgba(120,164,224,.45);      /* filo superior de tarjetas */
+  --brand-tint:rgba(35,65,101,.55);        /* fondo de sucursal propia */
+  --topbar-edge:rgba(148,178,220,.15);
+  --glass:rgba(19,31,51,.82);              /* tooltips con desenfoque */
 }
 html[data-theme="light"]{
-  --bg:#EFF2F7;
-  --bg-grid:rgba(11,18,32,.045);
+  --bg:#F0F4F8;
+  --bg-grid:rgba(30,58,95,.05);
   --surface:#FFFFFF;
-  --surface-2:#F5F7FB;
-  --line:rgba(11,18,32,.10);
-  --line-strong:rgba(11,18,32,.20);
-  --text:#0B1220;
-  --muted:#5C6B85;
+  --surface-2:#F1F5FA;
+  --line:rgba(30,58,95,.12);
+  --line-strong:rgba(30,58,95,.24);
+  --text:#12203A;
+  --muted:#56688A;
   --accent:#9A6B12;
-  --shadow:0 1px 2px rgba(11,18,32,.06), 0 14px 30px -22px rgba(11,18,32,.45);
+  --brand-line:rgba(30,58,95,.28);
+  --brand-tint:rgba(30,58,95,.06);
+  --topbar-edge:rgba(30,58,95,.28);
+  --glass:rgba(255,255,255,.86);
+  --shadow:0 1px 2px rgba(18,32,58,.06), 0 14px 30px -22px rgba(18,32,58,.45);
 }
 
 /* ---------- Base ---------- */
@@ -70,16 +83,22 @@ a{color:inherit}
   position:sticky;top:0;z-index:40;
   background:color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter:blur(14px);
-  border-bottom:1px solid var(--line);
+  border-bottom:2px solid var(--topbar-edge);
   padding-block:14px 0;
 }
 .topbar__inner{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:12px}
-.brand__mark{
-  width:12px;height:30px;border-radius:3px;flex:none;
-  background:linear-gradient(180deg,var(--regular) 0 33%,var(--premium) 33% 66%,var(--diesel) 66% 100%);
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.brand__logo{
+  height:42px;width:auto;max-width:190px;object-fit:contain;flex:none;
+  display:block;border-radius:8px;
 }
-.brand__name{display:block;font-family:var(--font-display);font-weight:800;font-size:19px;letter-spacing:-.025em}
+html[data-theme="dark"] .brand__logo{
+  /* La placa del logotipo es del mismo azul que el fondo: un filo tenue la separa. */
+  box-shadow:0 0 0 1px rgba(148,178,220,.22), 0 6px 18px -10px rgba(0,0,0,.9);
+}
+.brand__rule{width:1px;height:34px;background:var(--line-strong);flex:none}
+.brand__text{min-width:0}
+.brand__name{display:block;font-family:var(--font-display);font-weight:800;font-size:18px;letter-spacing:-.025em}
 .brand__sub{display:block;color:var(--muted);font-size:12.5px}
 
 .topbar__tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -141,6 +160,11 @@ a{color:inherit}
 .panel{
   background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:20px;margin-bottom:18px;
+  position:relative;overflow:hidden;
+}
+.panel::after{
+  content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,var(--brand-line),transparent 60%);
 }
 .panel__head{margin-bottom:16px}
 .panel__head--row{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
@@ -155,6 +179,10 @@ main.wrap{padding-block:22px 40px}
 .kpi,.extreme{
   background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:16px 18px;position:relative;overflow:hidden;
+}
+.kpi::after,.extreme::after{
+  content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,var(--brand-line),transparent 72%);
 }
 .kpi::before{content:"";position:absolute;inset:0 auto 0 0;width:3px}
 .kpi--regular::before{background:var(--regular)}
@@ -255,6 +283,10 @@ main.wrap{padding-block:22px 40px}
 .badge--low{background:var(--regular-soft);color:var(--regular)}
 .badge--high{background:var(--premium-soft);color:var(--premium)}
 .badge--type{background:var(--surface-2);color:var(--muted);font-family:var(--font-mono);font-weight:500}
+.badge--own{background:var(--brand);color:#fff;letter-spacing:.03em}
+.table tbody tr.is-own{background:var(--brand-tint)}
+.table tbody tr.is-own:hover{background:var(--brand-tint);filter:brightness(1.08)}
+.table tbody tr.is-own td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
 .na{color:var(--muted);opacity:.55}
 
 .pager{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:14px}
@@ -271,8 +303,10 @@ main.wrap{padding-block:22px 40px}
 /* ---------- Tooltip ---------- */
 .tooltip{
   position:fixed;z-index:80;pointer-events:none;max-width:280px;
-  background:var(--surface-2);border:1px solid var(--line-strong);border-radius:10px;
-  padding:9px 12px;font-size:12px;line-height:1.45;box-shadow:var(--shadow);
+  background:var(--glass);border:1px solid var(--line-strong);border-radius:10px;
+  padding:9px 12px;font-size:12px;line-height:1.45;
+  box-shadow:0 10px 30px -14px rgba(10,17,30,.85);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
 }
 .tooltip strong{display:block;font-size:12.5px;margin-bottom:2px}
 .tooltip .num{color:var(--muted)}
@@ -296,6 +330,9 @@ main.wrap{padding-block:22px 40px}
   .seg{flex:1;padding-inline:8px}
   .kpi__value{font-size:27px}
   .topbar__inner{gap:10px}
+  .brand__logo{height:34px;max-width:150px}
+  .brand__rule{display:none}
+  .brand__name{font-size:16px}
   .topbar__tools{width:100%;justify-content:space-between;gap:8px}
   .status{flex:1;min-width:0;justify-content:center}
   .status__time{display:none}

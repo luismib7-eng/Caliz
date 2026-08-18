@@ -64,9 +64,25 @@ window.APP_CONFIG = {
 
   /* ---------- Identidad y metodología ---------- */
 
-  TITLE: "Monitor de Precios de Combustibles",
-  SUBTITLE: "Gasolina Regular, Premium y Diésel · Precio al público (MXN/litro)",
+  TITLE: "LB GAS 23 · Monitor de Precios",
+  SUBTITLE: "Servicio Bautista · Análisis de Precios al Público (SENER / CNE / SAT)",
+
+  /* Logotipo del encabezado. Si el archivo no existe, el tablero oculta la
+     imagen y deja el título sin hueco vacío. */
+  LOGO_URL: "logo_lbgas23.png",
+
   REPO_URL: "https://github.com/usuario/monitor-combustibles",
+
+  /* Sucursales propias: se marcan en el explorador con el distintivo
+     "Sucursal propia" y un realce azul de marca.
+       permisos → coincidencia exacta (ignora espacios y el prefijo "CNE/")
+       patrones → texto contenido en la razón social, sin acentos ni mayúsculas
+     Captura aquí los permisos CRE de tus estaciones: es la vía confiable,
+     porque la razón social en el catálogo puede no incluir la marca comercial. */
+  MIS_ESTACIONES: {
+    permisos: [],
+    patrones: ["LB GAS", "SERVICIO BAUTISTA"]
+  },
 
   /* Referencia nacional para comparar los promedios del tablero.
      Valores publicados por Profeco en "Quién es Quién en los Precios",

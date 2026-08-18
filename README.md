@@ -1,4 +1,6 @@
-# Monitor de Precios de Combustibles
+# LB GAS 23 · Monitor de Precios
+
+**Servicio Bautista · Análisis de Precios al Público (SENER / CNE / SAT)**
 
 Tablero web para monitorear precios de gasolina Regular, Premium y Diésel por estación de
 servicio. Lee los datos en vivo desde una hoja de Google Sheets publicada como CSV y se
@@ -193,6 +195,9 @@ publica `fallback.csv` con un commit diario.
 | `CATALOG_CSV` | Catálogo permiso → razón social, dirección y ubicación. `""` lo desactiva. |
 | `PRICE_MIN`, `PRICE_MAX` | Rango de precio válido en MXN/litro (por omisión $15–$45). |
 | `SEARCH_DEBOUNCE_MS` | Espera del buscador antes de filtrar. |
+| `TITLE`, `SUBTITLE` | Encabezado del tablero y título de la pestaña. |
+| `LOGO_URL` | Logotipo del encabezado. Si el archivo falta, el título se acomoda solo. |
+| `MIS_ESTACIONES` | Permisos y patrones de razón social de tus sucursales; se marcan en el explorador. |
 | `REFRESH_MINUTES` | Minutos entre actualizaciones automáticas. `0` las desactiva. |
 | `TITLE`, `SUBTITLE` | Encabezado del tablero. |
 | `REPO_URL` | Enlace del pie de página. |
@@ -245,6 +250,8 @@ actualiza solo en la siguiente lectura.
 ├── config.js                           Único archivo que necesitas editar
 ├── .nojekyll
 ├── README.md
+├── logo_lbgas23.png                    Logotipo del encabezado (fondo transparente)
+├── favicon.png                         Isotipo de LB GAS 23 para pestaña e ícono de app
 ├── fallback.csv                        Respaldo local: padrón nacional de 13,825 estaciones
 ├── catalogo_estaciones.csv             Permiso CRE → razón social y dirección (175 estaciones)
 ├── estaciones_seed.csv                 Corte de 175 estaciones con nombre y dirección
@@ -268,7 +275,38 @@ que ya trae el navegador. Dependencias por CDN: PapaParse 5.4.1 (lectura de CSV)
 
 ---
 
-## 7. Qué muestra cada bloque
+## 7. Identidad visual
+
+La paleta parte del logotipo de LB GAS 23: azul marino petróleo (`--brand: #1E3A5F`) como color
+institucional, y los tres productos conservan su código de lectura —esmeralda para Regular, rubí
+para Premium y ámbar para Diésel— porque son la clave de interpretación de todo el tablero, no
+decoración.
+
+- **Modo oscuro:** fondo `#0A111E`, tarjetas `#131F33`, superficies elevadas `#1C2C47`.
+- **Modo claro:** fondo `#F0F4F8`, tarjetas blancas y filo inferior azul de marca en el encabezado.
+- **Tarjetas y paneles:** filo superior con degradado azul corporativo que se desvanece a la derecha.
+- **Logotipo:** `logo_lbgas23.png` viene recortado y con fondo transparente, así que la placa azul
+  se apoya limpiamente en ambos temas. Para sustituirlo basta con reemplazar el archivo o cambiar
+  `LOGO_URL`; si falta, el encabezado se acomoda sin dejar hueco.
+
+### Marcar tus sucursales
+
+Las estaciones propias aparecen en el explorador con el distintivo **Sucursal propia**, realce azul
+y filo lateral. Se declaran en `config.js`:
+
+```javascript
+MIS_ESTACIONES: {
+  permisos: ["PL/12345/EXP/ES/2015"],       // coincidencia exacta (recomendado)
+  patrones: ["LB GAS", "SERVICIO BAUTISTA"] // texto contenido en la razón social
+}
+```
+
+Los permisos son la vía confiable: en el padrón de la CNE la razón social suele ser la sociedad
+mercantil, no la marca comercial, así que un patrón por nombre puede no encontrar nada.
+
+---
+
+## 8. Qué muestra cada bloque
 
 - **Tarjetas KPI.** Promedio de cada producto en el periodo y filtro activos, número de estaciones
   con precio, cambio contra el periodo anterior y diferencia contra la referencia nacional.
@@ -287,7 +325,7 @@ importadoras incluye el margen al mayoreo e incluye descuentos en TAR.
 
 ---
 
-## 8. Flujo de comandos
+## 9. Flujo de comandos
 
 ### Actualizar los datos (modalidad local)
 

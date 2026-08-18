@@ -191,9 +191,36 @@
     return dedupe(out);
   }
 
+  /* Sucursales propias declaradas en config.js. Se resuelve una sola vez. */
+  var MIAS = (function () {
+    var cfg = CFG.MIS_ESTACIONES || {};
+    var permisos = {}, patrones = [];
+    (cfg.permisos || []).forEach(function (p) {
+      var k = String(p || "").toUpperCase().replace(/\s+/g, "");
+      if (!k) return;
+      permisos[k.indexOf("CNE/") === 0 ? k.slice(4) : k] = true;
+    });
+    (cfg.patrones || []).forEach(function (t) {
+      var k = slug(t);
+      if (k) patrones.push(k);
+    });
+    return { permisos: permisos, patrones: patrones, activo: Object.keys(permisos).length > 0 || patrones.length > 0 };
+  })();
+
+  function esPropia(r) {
+    if (!MIAS.activo) return false;
+    if (r.permiso && MIAS.permisos[permitKey(r.permiso)]) return true;
+    var texto = slug(r.estacion || "") + slug(r.marca || "");
+    for (var i = 0; i < MIAS.patrones.length; i++) {
+      if (texto.indexOf(MIAS.patrones[i]) > -1) return true;
+    }
+    return false;
+  }
+
   /* Texto precalculado para que la búsqueda no recorra objetos en cada tecla. */
   function indexRow(r) {
     r._s = slug([r.estacion, r.permiso, r.direccion, r.municipio, r.estado, r.region, r.marca].join(" "));
+    r._own = esPropia(r);
     return r;
   }
 
@@ -262,7 +289,7 @@
       ["region", "estado", "municipio", "marca", "estacion", "direccion"].forEach(function (k) {
         if (!r[k] && c[k]) r[k] = c[k];
       });
-      indexRow(r);
+      indexRow(r);   // recalcula búsqueda y marca de sucursal propia
     });
     return rows;
   }
@@ -517,6 +544,11 @@
     var nota = [state.rows.length.toLocaleString("es-MX") + " estaciones", "origen: " + state.origin];
     if (ps.length) nota.push(ps.length + " periodo" + (ps.length > 1 ? "s" : ""));
     if (quality.catalogo) nota.push(quality.catalogo.toLocaleString("es-MX") + " con catálogo");
+    if (MIAS.activo) {
+      var mias = state.rows.filter(function (r) { return r._own; }).length;
+      nota.push(mias ? mias + " sucursal" + (mias > 1 ? "es" : "") + " propia" + (mias > 1 ? "s" : "") + " identificada" + (mias > 1 ? "s" : "")
+                     : "sin sucursales propias en el padrón");
+    }
     if (quality.duplicados) nota.push(quality.duplicados + " permisos repetidos fusionados");
     if (quality.fueraRango) nota.push(quality.fueraRango + " precios fuera de rango descartados");
     $("datasetNote").textContent = nota.join(" · ");
@@ -937,8 +969,9 @@
     var hi = priced.length ? Math.max.apply(null, priced) : null;
 
     var html = slice.map(function (r) {
-      return "<tr>" +
-        '<td><div class="cell-station">' + esc(r.estacion || r.permiso) + "</div>" +
+      return "<tr" + (r._own ? ' class="is-own"' : "") + ">" +
+        '<td><div class="cell-station">' + esc(r.estacion || r.permiso) +
+          (r._own ? '<span class="badge badge--own">Sucursal propia</span>' : "") + "</div>" +
           (r.marca ? '<div class="cell-addr">' + esc(r.marca) + "</div>" : "") + "</td>" +
         '<td><span class="cell-permit">' + (esc(r.permiso) || "—") + "</span></td>" +
         "<td>" + esc([r.municipio, r.estado, r.region].filter(Boolean).join(", ") || "—") +
@@ -1085,6 +1118,16 @@
      --------------------------------------------------------- */
 
   function init() {
+    var logo = $("brandLogo");
+    if (logo) {
+      if (CFG.LOGO_URL && CFG.LOGO_URL.trim()) logo.src = CFG.LOGO_URL.trim();
+      else logo.remove();
+      logo.addEventListener("error", function () {
+        this.remove();
+        var regla = document.querySelector(".brand__rule");
+        if (regla) regla.remove();
+      });
+    }
     if (CFG.TITLE) { document.title = CFG.TITLE; $("appTitle").textContent = CFG.TITLE; }
     if (CFG.SUBTITLE) $("appSubtitle").textContent = CFG.SUBTITLE;
     $("footerMethod").textContent = CFG.METODOLOGIA || "";
