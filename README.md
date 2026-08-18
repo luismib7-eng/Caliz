@@ -122,9 +122,9 @@ vacías, `N/A`, `N/D` o `-` se muestran como *N/D* y quedan fuera de los promedi
 Para acumular historia, **agrega filas nuevas con otra `Fecha`** en la misma hoja; no reemplaces las
 anteriores. Con dos periodos o más se activan la gráfica de tendencia y el delta de las tarjetas KPI.
 
-Los archivos `plantilla_google_sheets.csv` (plantilla con tres filas de ejemplo) y
-`estaciones_seed.csv` (175 permisos ya normalizados, periodo 18 de agosto de 2026) sirven de
-punto de partida: ábrelos en Google Sheets con **Archivo → Importar**.
+Para armar la hoja desde cero, importa `fallback.csv` en Google Sheets (**Archivo → Importar**):
+ya trae los encabezados exactos y un periodo completo. El catálogo de estaciones vive aparte, en
+`catalogo_estaciones.csv`, y se copia a la pestaña `Catalogo`.
 
 ---
 
@@ -175,8 +175,8 @@ de Google Sheets.
 `actualizar-datos.yml` hace lo mismo desde el repositorio: descarga el XML, corre `xml_a_csv.py` y
 publica `fallback.csv` con un commit diario.
 
-1. Copia el archivo a `.github/workflows/actualizar-datos.yml`. **Esa ruta la impone GitHub**; es la
-   única carpeta del proyecto y el resto del repositorio se mantiene plano.
+1. El archivo ya está en `.github/workflows/actualizar-datos.yml`. **Esa ruta la impone GitHub**;
+   es la única carpeta del proyecto y el resto del repositorio se mantiene plano.
 2. **Settings → Secrets and variables → Actions → Variables**: crea `URL_XML` con la ruta vigente
    del XML de la CNE.
 3. **Settings → Actions → General → Workflow permissions**: marca *Read and write permissions*.
@@ -254,15 +254,16 @@ actualiza solo en la siguiente lectura.
 ├── favicon.png                         Isotipo de LB GAS 23 para pestaña e ícono de app
 ├── fallback.csv                        Respaldo local: padrón nacional de 13,825 estaciones
 ├── catalogo_estaciones.csv             Permiso CRE → razón social y dirección (175 estaciones)
-├── estaciones_seed.csv                 Corte de 175 estaciones con nombre y dirección
-├── plantilla_google_sheets.csv         Plantilla de columnas para la hoja
 ├── xml_a_csv.py                        Convierte el XML oficial a CSV limpio y enriquecido
 ├── AppsScript.gs                       Ingesta diaria del XML a Google Sheets
-└── actualizar-datos.yml                Flujo de GitHub Actions (copiar a .github/workflows/)
+└── .github/
+    └── workflows/
+        └── actualizar-datos.yml        Ingesta diaria del XML desde GitHub Actions
 ```
 
-Todos los archivos viven en la raíz del repositorio, sin subcarpetas: `index.html` queda en el
-primer nivel, que es lo que GitHub Pages espera para servir el sitio desde `/ (root)`.
+Todo el proyecto vive en la raíz —`index.html` en el primer nivel, que es lo que GitHub Pages
+espera para servir desde `/ (root)`— salvo `.github/workflows/`, la única carpeta, y la impone
+GitHub para los flujos de Actions.
 
 El tablero interpreta CSV y XML sin dependencias adicionales: el XML se lee con `DOMParser`,
 que ya trae el navegador. Dependencias por CDN: PapaParse 5.4.1 (lectura de CSV), Chart.js 4.4.1 (gráficos) y Google Fonts
@@ -306,7 +307,72 @@ mercantil, no la marca comercial, así que un patrón por nombre puede no encont
 
 ---
 
-## 8. Qué muestra cada bloque
+## 8. Módulos de inteligencia comercial
+
+### Filtros de Estado y Municipio en cascada
+
+Sustituyen al antiguo selector único de Región. El municipio solo lista los del estado elegido, y
+ambos se alimentan de las columnas `Estado` y `Municipio` del catálogo.
+
+**Cuando el catálogo no trae ubicación**, el tablero intenta deducirla del domicilio, pero solo
+acepta la coincidencia si aparece donde un domicilio mexicano realmente codifica la localidad:
+
+- en los dos últimos segmentos separados por coma — *"Av. Vallarta 1234, Col. Americana,
+  Guadalajara, Jalisco"*;
+- después de un marcador explícito — *"Municipio de Zapopan"*, *"Mpio. Tala"*.
+
+Todo lo demás se ignora deliberadamente, porque en México las ciudades dan nombre a calles y
+carreteras: *"Avenida Lázaro Cárdenas"* está en Guadalajara, no en Lázaro Cárdenas, y
+*"Carretera Guadalajara – Nogales"* puede estar a 200 km de Guadalajara. Una ubicación equivocada
+contamina el promedio local, el semáforo y el simulador, así que el motor prefiere no responder.
+
+Lo inferido se marca con **≈** en la columna Ubicación y se declara como *Inferido del domicilio*
+en la exportación. **La ruta confiable es llenar `Estado` y `Municipio` en
+`catalogo_estaciones.csv`**, que además activa la comparativa por municipio.
+
+Para ampliar la cobertura del motor, agrega entradas al diccionario `MUNICIPIOS` en `app.js`
+(clave en minúsculas y sin acentos, valor el estado).
+
+### Semáforo comercial y diferencial vs. promedio local
+
+La tabla incluye la columna **Δ vs. promedio local** del producto seleccionado:
+
+- 🟢 **verde**: por debajo del promedio de su mercado — estrategia de volumen;
+- 🔴 **rojo**: por encima — margen alto con riesgo de perder volumen;
+- gris: en el promedio.
+
+El promedio se calcula por municipio y degrada a estado y luego a nacional cuando no hay al menos
+dos estaciones en el nivel más fino. El tooltip de cada valor dice contra qué universo se comparó y
+con cuántas estaciones. **El promedio siempre se calcula con el padrón completo del periodo**, aunque
+estés filtrando: aislar tus estaciones no debe mover la referencia de mercado.
+
+### Interruptor Mercado total / Solo mis estaciones
+
+Un clic aísla las estaciones declaradas en `MIS_ESTACIONES`. Queda deshabilitado mientras no haya
+ninguna identificada, y el conteo junto al interruptor te dice cuántas reconoció.
+
+### Simulador táctico de precios
+
+Panel colapsable. Eliges una de tus estaciones, mueves el precio con los botones de ±0.10 y ±0.20 o
+escribes uno, y responde al instante:
+
+- cómo cambia su lugar en el ranking del municipio — *"Pasarías del lugar 4 al 2 más económico de
+  Zapopan"*;
+- la brecha resultante contra la estación más barata de la zona y contra el promedio local.
+
+La estación no compite consigo misma: se excluye del ranking antes de calcular. Si el municipio no
+está confirmado, el panel avisa que la comparación se hizo contra un universo más amplio.
+
+### Exportador de la vista filtrada
+
+El botón **Exportar vista** genera un CSV con lo que estás viendo —filtros, búsqueda y orden
+incluidos— más las columnas calculadas: promedio local, alcance del promedio, diferencial, posición
+comercial, origen de la ubicación y si es sucursal propia. Lleva BOM UTF-8, así que Excel respeta
+los acentos, y el nombre del archivo recoge producto, periodo y filtros.
+
+---
+
+## 9. Qué muestra cada bloque
 
 - **Tarjetas KPI.** Promedio de cada producto en el periodo y filtro activos, número de estaciones
   con precio, cambio contra el periodo anterior y diferencia contra la referencia nacional.
@@ -325,7 +391,7 @@ importadoras incluye el margen al mayoreo e incluye descuentos en TAR.
 
 ---
 
-## 9. Flujo de comandos
+## 10. Flujo de comandos
 
 ### Actualizar los datos (modalidad local)
 

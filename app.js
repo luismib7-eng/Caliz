@@ -21,7 +21,9 @@
     rows: [],
     product: "regular",
     period: "",
-    region: "",
+    estado: "",
+    municipio: "",
+    onlyMine: false,
     search: "",
     sortKey: "regular",
     sortDir: "asc",
@@ -191,6 +193,194 @@
     return dedupe(out);
   }
 
+
+  /* ---------------------------------------------------------
+     1 bis. Inferencia de ubicación a partir del domicilio
+
+     El XML de la CNE no trae ubicación y el catálogo puede venir sin
+     Estado/Municipio. Como último recurso se busca el nombre de un
+     municipio o estado dentro de la dirección.
+
+     Advertencia de diseño: en México los domicilios de carretera se
+     nombran por su DESTINO, no por su ubicación ("Carretera Guadalajara -
+     Nogales" puede estar a 200 km de Guadalajara). Por eso toda
+     coincidencia precedida de carretera, camino, autopista, libramiento,
+     entronque, salida o rumbo se descarta, y lo que sí se acepta queda
+     marcado como inferido (≈) para no confundirlo con el dato de catálogo.
+
+     Para ampliar la cobertura, agrega municipios a MUNICIPIOS: la clave es
+     el nombre en minúsculas y sin acentos, el valor es su estado.
+     --------------------------------------------------------- */
+
+  var ESTADOS = ["aguascalientes", "baja california sur", "baja california", "campeche",
+    "coahuila", "colima", "chiapas", "chihuahua", "ciudad de mexico", "cdmx", "durango",
+    "guanajuato", "guerrero", "hidalgo", "jalisco", "estado de mexico", "michoacan",
+    "morelos", "nayarit", "nuevo leon", "oaxaca", "puebla", "queretaro", "quintana roo",
+    "san luis potosi", "sinaloa", "sonora", "tabasco", "tamaulipas", "tlaxcala",
+    "veracruz", "yucatan", "zacatecas"];
+
+  var ESTADO_NOMBRE = {
+    "cdmx": "Ciudad de México", "ciudad de mexico": "Ciudad de México",
+    "estado de mexico": "Estado de México", "michoacan": "Michoacán",
+    "nuevo leon": "Nuevo León", "queretaro": "Querétaro", "san luis potosi": "San Luis Potosí",
+    "yucatan": "Yucatán", "jalisco": "Jalisco", "guanajuato": "Guanajuato", "colima": "Colima",
+    "nayarit": "Nayarit", "zacatecas": "Zacatecas", "aguascalientes": "Aguascalientes",
+    "sinaloa": "Sinaloa", "sonora": "Sonora", "durango": "Durango", "chihuahua": "Chihuahua",
+    "coahuila": "Coahuila", "tamaulipas": "Tamaulipas", "veracruz": "Veracruz",
+    "puebla": "Puebla", "morelos": "Morelos", "hidalgo": "Hidalgo", "tlaxcala": "Tlaxcala",
+    "guerrero": "Guerrero", "oaxaca": "Oaxaca", "chiapas": "Chiapas", "tabasco": "Tabasco",
+    "campeche": "Campeche", "quintana roo": "Quintana Roo",
+    "baja california": "Baja California", "baja california sur": "Baja California Sur"
+  };
+
+  var MUNICIPIOS = {
+    /* Área Metropolitana de Guadalajara y resto de Jalisco */
+    "guadalajara": "Jalisco", "zapopan": "Jalisco", "tlaquepaque": "Jalisco",
+    "san pedro tlaquepaque": "Jalisco", "tonala": "Jalisco", "tlajomulco": "Jalisco",
+    "tlajomulco de zuniga": "Jalisco", "el salto": "Jalisco", "juanacatlan": "Jalisco",
+    "ixtlahuacan de los membrillos": "Jalisco", "zapotlanejo": "Jalisco",
+    "puerto vallarta": "Jalisco", "lagos de moreno": "Jalisco", "tepatitlan": "Jalisco",
+    "ocotlan": "Jalisco", "ciudad guzman": "Jalisco", "zapotlan el grande": "Jalisco",
+    "ameca": "Jalisco", "autlan": "Jalisco", "arandas": "Jalisco", "la barca": "Jalisco",
+    "chapala": "Jalisco", "jocotepec": "Jalisco", "tala": "Jalisco", "tequila": "Jalisco",
+    "san juan de los lagos": "Jalisco", "mazamitla": "Jalisco", "sayula": "Jalisco",
+    "cocula": "Jalisco", "villa corona": "Jalisco", "acatlan de juarez": "Jalisco",
+    "etzatlan": "Jalisco", "magdalena": "Jalisco", "zacoalco": "Jalisco",
+    "tamazula": "Jalisco", "tuxpan": "Jalisco", "atotonilco": "Jalisco",
+    /* Estados vecinos y principales metrópolis del país */
+    "morelia": "Michoacán", "uruapan": "Michoacán", "zamora": "Michoacán",
+    "lazaro cardenas": "Michoacán", "cotija": "Michoacán", "tocumbo": "Michoacán",
+    "sahuayo": "Michoacán", "jiquilpan": "Michoacán", "la piedad": "Michoacán",
+    "leon": "Guanajuato", "irapuato": "Guanajuato", "celaya": "Guanajuato",
+    "salamanca": "Guanajuato", "silao": "Guanajuato", "san miguel de allende": "Guanajuato",
+    "manzanillo": "Colima", "tecoman": "Colima", "villa de alvarez": "Colima",
+    "tepic": "Nayarit", "bahia de banderas": "Nayarit", "compostela": "Nayarit",
+    "monterrey": "Nuevo León", "san nicolas de los garza": "Nuevo León",
+    "guadalupe": "Nuevo León", "apodaca": "Nuevo León", "santa catarina": "Nuevo León",
+    "saltillo": "Coahuila", "torreon": "Coahuila", "monclova": "Coahuila",
+    "gomez palacio": "Durango", "culiacan": "Sinaloa", "mazatlan": "Sinaloa",
+    "los mochis": "Sinaloa", "hermosillo": "Sonora", "ciudad obregon": "Sonora",
+    "nogales": "Sonora", "tijuana": "Baja California", "mexicali": "Baja California",
+    "ensenada": "Baja California", "la paz": "Baja California Sur",
+    "los cabos": "Baja California Sur", "ciudad juarez": "Chihuahua",
+    "delicias": "Chihuahua", "cuauhtemoc": "Chihuahua",
+    "tampico": "Tamaulipas", "reynosa": "Tamaulipas", "matamoros": "Tamaulipas",
+    "nuevo laredo": "Tamaulipas", "victoria": "Tamaulipas",
+    "toluca": "Estado de México", "naucalpan": "Estado de México",
+    "ecatepec": "Estado de México", "tlalnepantla": "Estado de México",
+    "cuautitlan": "Estado de México", "ocoyoacac": "Estado de México",
+    "iztapalapa": "Ciudad de México", "coyoacan": "Ciudad de México",
+    "azcapotzalco": "Ciudad de México", "gustavo a madero": "Ciudad de México",
+    "cuernavaca": "Morelos", "cuautla": "Morelos", "pachuca": "Hidalgo",
+    "tulancingo": "Hidalgo", "puebla": "Puebla", "tehuacan": "Puebla",
+    "cholula": "Puebla", "veracruz": "Veracruz", "xalapa": "Veracruz",
+    "coatzacoalcos": "Veracruz", "cordoba": "Veracruz", "orizaba": "Veracruz",
+    "poza rica": "Veracruz", "ursulo galvan": "Veracruz",
+    "villahermosa": "Tabasco", "cardenas": "Tabasco", "acapulco": "Guerrero",
+    "chilpancingo": "Guerrero", "zihuatanejo": "Guerrero", "oaxaca de juarez": "Oaxaca",
+    "santa cruz xoxocotlan": "Oaxaca", "salina cruz": "Oaxaca",
+    "tuxtla gutierrez": "Chiapas", "tapachula": "Chiapas", "san cristobal": "Chiapas",
+    "merida": "Yucatán", "valladolid": "Yucatán", "cancun": "Quintana Roo",
+    "playa del carmen": "Quintana Roo", "chetumal": "Quintana Roo",
+    "carmen": "Campeche", "san luis potosi": "San Luis Potosí",
+    "queretaro": "Querétaro", "san juan del rio": "Querétaro",
+    "aguascalientes": "Aguascalientes", "zacatecas": "Zacatecas",
+    "fresnillo": "Zacatecas", "durango": "Durango", "colima": "Colima",
+    "guanajuato": "Guanajuato", "chihuahua": "Chihuahua", "tlaxcala": "Tlaxcala",
+    "campeche": "Campeche"
+  };
+
+  /* Nombre para mostrar de los municipios con acento (la clave del
+     diccionario va sin acentos para poder buscarla en el domicilio). */
+  var MUNICIPIO_NOMBRE = {
+    "tonala": "Tonalá", "tlajomulco": "Tlajomulco", "tlajomulco de zuniga": "Tlajomulco de Zúñiga",
+    "juanacatlan": "Juanacatlán", "ixtlahuacan de los membrillos": "Ixtlahuacán de los Membrillos",
+    "tepatitlan": "Tepatitlán", "ocotlan": "Ocotlán", "ciudad guzman": "Ciudad Guzmán",
+    "zapotlan el grande": "Zapotlán el Grande", "autlan": "Autlán", "etzatlan": "Etzatlán",
+    "acatlan de juarez": "Acatlán de Juárez", "atotonilco": "Atotonilco", "leon": "León",
+    "lazaro cardenas": "Lázaro Cárdenas", "torreon": "Torreón", "monclova": "Monclova",
+    "gomez palacio": "Gómez Palacio", "culiacan": "Culiacán", "mazatlan": "Mazatlán",
+    "hermosillo": "Hermosillo", "ciudad obregon": "Ciudad Obregón", "ciudad juarez": "Ciudad Juárez",
+    "cuauhtemoc": "Cuauhtémoc", "san nicolas de los garza": "San Nicolás de los Garza",
+    "tuxtla gutierrez": "Tuxtla Gutiérrez", "merida": "Mérida", "cancun": "Cancún",
+    "oaxaca de juarez": "Oaxaca de Juárez", "santa cruz xoxocotlan": "Santa Cruz Xoxocotlán",
+    "coyoacan": "Coyoacán", "azcapotzalco": "Azcapotzalco", "cordoba": "Córdoba",
+    "tehuacan": "Tehuacán", "queretaro": "Querétaro", "san juan del rio": "San Juan del Río",
+    "san luis potosi": "San Luis Potosí", "ursulo galvan": "Úrsulo Galván",
+    "tlalnepantla": "Tlalnepantla", "cuautitlan": "Cuautitlán", "colima": "Colima"
+  };
+
+  /* ---------------------------------------------------------
+     Motor de inferencia: solo "ranuras de localidad"
+
+     En México los nombres de ciudades se usan masivamente como nombres de
+     calles y carreteras: "Avenida Lázaro Cárdenas" está en Guadalajara, no
+     en Lázaro Cárdenas; "Carretera Guadalajara - Nogales" puede estar a
+     200 km de ambas; "Prolongación Avenida Guadalupe" no está en Guadalupe,
+     Nuevo León. Buscar el nombre en cualquier parte del domicilio produce
+     puros falsos positivos.
+
+     Por eso solo se acepta la coincidencia cuando aparece donde un domicilio
+     mexicano sí codifica la localidad:
+       a) en los dos últimos segmentos separados por coma
+          "Av. Vallarta 1234, Col. Americana, Guadalajara, Jalisco"
+       b) tras un marcador explícito
+          "Municipio de Zapopan", "Mpio. Tala", "Ciudad de Colima"
+     Cualquier otra aparición se ignora.
+     --------------------------------------------------------- */
+
+  var MARCADOR_LOCALIDAD = /(municipio|mpio\.?|ciudad|cd\.?|localidad|delegacion|alcaldia)\s+(de\s+)?$/;
+  var PREFIJO_VIAL = /(carretera|carr\.?|camino|autopista|libramiento|periferico|entronque|desviacion|salida|rumbo|avenida|av\.?|calle|calz\.?|calzada|boulevard|blvd\.?|prolongacion|paseo|circuito|andador|privada|cerrada|lago|plaza|colonia|col\.?|fraccionamiento|fracc\.?|barrio|esquina)\s+(de\s+|a\s+|del\s+)?$/;
+
+  function normText(v) {
+    var s = String(v || "").toLowerCase();
+    s = s.replace(/[áàä]/g, "a").replace(/[éèë]/g, "e").replace(/[íìï]/g, "i")
+         .replace(/[óòö]/g, "o").replace(/[úùü]/g, "u").replace(/ñ/g, "n");
+    return s.replace(/\s+/g, " ").trim();
+  }
+
+  /* ¿La clave ocupa el segmento completo (o casi) de una ranura de localidad? */
+  function esRanura(segmento, clave) {
+    var seg = segmento.replace(/^[\s.,-]+|[\s.,;-]+$/g, "");
+    if (seg === clave) return true;
+    var m = seg.match(new RegExp("^(.*?)\\b" + clave.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b\\s*$"));
+    if (!m) return false;
+    return MARCADOR_LOCALIDAD.test(m[1]) && !PREFIJO_VIAL.test(m[1]);
+  }
+
+  function buscaEnRanuras(texto, clave) {
+    var partes = texto.split(",");
+    var candidatas = partes.length > 1 ? partes.slice(-2) : [];
+    for (var i = 0; i < partes.length; i++) {
+      if (MARCADOR_LOCALIDAD.test(partes[i].slice(0, partes[i].toLowerCase().indexOf(clave)) || "")) {
+        candidatas.push(partes[i]);
+      }
+    }
+    for (var j = 0; j < candidatas.length; j++) {
+      if (esRanura(candidatas[j], clave)) return true;
+    }
+    return false;
+  }
+
+  /* Devuelve { municipio, estado } o null. Solo se usa cuando el catálogo no
+     aporta el dato, y prefiere no responder antes que responder mal: una
+     ubicación equivocada contamina promedios locales, semáforo y simulador. */
+  function inferirUbicacion(direccion) {
+    var t = normText(direccion);
+    if (!t || t.indexOf(",") === -1) return null;
+    var k, estado = "", municipio = "";
+    for (k in MUNICIPIOS) {
+      if (MUNICIPIOS.hasOwnProperty(k) && buscaEnRanuras(t, k)) {
+        municipio = MUNICIPIO_NOMBRE[k] || titleCase(k); estado = MUNICIPIOS[k];
+        break;
+      }
+    }
+    for (var i = 0; i < ESTADOS.length && !estado; i++) {
+      if (buscaEnRanuras(t, ESTADOS[i])) estado = ESTADO_NOMBRE[ESTADOS[i]] || titleCase(ESTADOS[i]);
+    }
+    return estado ? { municipio: municipio, estado: estado } : null;
+  }
+
   /* Sucursales propias declaradas en config.js. Se resuelve una sola vez. */
   var MIAS = (function () {
     var cfg = CFG.MIS_ESTACIONES || {};
@@ -219,7 +409,18 @@
 
   /* Texto precalculado para que la búsqueda no recorra objetos en cada tecla. */
   function indexRow(r) {
-    r._s = slug([r.estacion, r.permiso, r.direccion, r.municipio, r.estado, r.region, r.marca].join(" "));
+    // No se reinicia la marca: indexRow vuelve a correr tras cruzar el catálogo.
+    if (r.inferido === undefined) r.inferido = false;
+    if (!r.estado && r.direccion) {
+      var geo = inferirUbicacion(r.direccion);
+      if (geo) {
+        r.estado = geo.estado;
+        if (!r.municipio && geo.municipio) r.municipio = geo.municipio;
+        r.inferido = true;
+      }
+    }
+    r._s = slug([r.estacion, r.permiso, permitKey(r.permiso), r.direccion,
+                 r.municipio, r.estado, r.region, r.marca].join(" "));
     r._own = esPropia(r);
     return r;
   }
@@ -492,16 +693,20 @@
     return Object.keys(set).sort().reverse();
   }
 
+  /* La comparativa se agrupa por el nivel más fino que tenga suficientes
+     grupos dentro de la selección actual. */
   function detectDimension() {
+    var base = typeof scoped === "function" && state.rows.length ? scoped() : state.rows;
     var order = [
-      { key: "region", label: "Región" },
-      { key: "estado", label: "Estado" },
       { key: "municipio", label: "Municipio" },
+      { key: "estado", label: "Estado" },
+      { key: "region", label: "Región" },
       { key: "marca", label: "Marca" }
     ];
     for (var i = 0; i < order.length; i++) {
-      var filled = state.rows.filter(function (r) { return r[order[i].key]; }).length;
-      if (filled >= Math.max(3, state.rows.length * 0.5)) return order[i];
+      var vals = {};
+      base.forEach(function (r) { if (r[order[i].key]) vals[r[order[i].key]] = true; });
+      if (Object.keys(vals).length >= 2) return order[i];
     }
     return { key: "estacion", label: "Estación" };
   }
@@ -519,34 +724,25 @@
     sel.disabled = ps.length < 2;
 
     state.dimension = detectDimension();
-    var rsel = $("regionSelect");
-    var keepRegion = state.region;
-    if ($("regionLabel")) $("regionLabel").textContent = state.dimension.label;
-    var vals = {}, list = [];
-    if (state.dimension.key !== "estacion") {
-      state.rows.forEach(function (r) { if (r[state.dimension.key]) vals[r[state.dimension.key]] = true; });
-      list = Object.keys(vals).sort();
-    }
-    rsel.innerHTML = "";
-    if (list.length > 1 && list.length <= 400) {
-      rsel.appendChild(new Option("Todas", ""));
-      list.forEach(function (v) { rsel.appendChild(new Option(v, v)); });
-      rsel.disabled = false;
-    } else {
-      list = [];
-      rsel.appendChild(new Option("Sin columna geográfica en la fuente", ""));
-      rsel.disabled = true;
-      if ($("regionLabel")) $("regionLabel").textContent = "Región / Estado";
-    }
-    state.region = (keepRegion && list.indexOf(keepRegion) > -1) ? keepRegion : "";
-    rsel.value = state.region;
+    buildGeoSelects();
+
+    var mias = state.rows.filter(function (r) { return r._own; }).length;
+    var toggle = $("mineToggle");
+    $("mineCount").textContent = mias ? "(" + mias + ")" : "";
+    toggle.disabled = !mias;
+    toggle.title = mias
+      ? "Aísla tus " + mias + " estación(es); los promedios del mercado se siguen calculando con el padrón completo."
+      : "Aún no hay estaciones propias identificadas: captura sus permisos CRE en MIS_ESTACIONES (config.js).";
+    if (!mias && state.onlyMine) setMine(false);
 
     var nota = [state.rows.length.toLocaleString("es-MX") + " estaciones", "origen: " + state.origin];
     if (ps.length) nota.push(ps.length + " periodo" + (ps.length > 1 ? "s" : ""));
     if (quality.catalogo) nota.push(quality.catalogo.toLocaleString("es-MX") + " con catálogo");
+    var conUbic = state.rows.filter(function (r) { return r.estado; }).length;
+    var inferidas = state.rows.filter(function (r) { return r.inferido; }).length;
+    nota.push(conUbic.toLocaleString("es-MX") + " con ubicación" + (inferidas ? " (" + inferidas + " inferida" + (inferidas > 1 ? "s" : "") + " del domicilio)" : ""));
     if (MIAS.activo) {
-      var mias = state.rows.filter(function (r) { return r._own; }).length;
-      nota.push(mias ? mias + " sucursal" + (mias > 1 ? "es" : "") + " propia" + (mias > 1 ? "s" : "") + " identificada" + (mias > 1 ? "s" : "")
+      nota.push(mias ? mias + " sucursal" + (mias > 1 ? "es" : "") + " propia" + (mias > 1 ? "s" : "")
                      : "sin sucursales propias en el padrón");
     }
     if (quality.duplicados) nota.push(quality.duplicados + " permisos repetidos fusionados");
@@ -554,16 +750,118 @@
     $("datasetNote").textContent = nota.join(" · ");
   }
 
+  /* Estado y Municipio en cascada: el municipio solo lista los del estado
+     seleccionado. */
+  function buildGeoSelects() {
+    var selE = $("estadoSelect"), selM = $("municipioSelect");
+    var estados = {}, i;
+    state.rows.forEach(function (r) { if (r.estado) estados[r.estado] = true; });
+    var listaE = Object.keys(estados).sort(function (a, b) { return a.localeCompare(b, "es"); });
+
+    var keepE = state.estado;
+    selE.innerHTML = "";
+    selE.appendChild(new Option(listaE.length ? "Todos los estados" : "Sin ubicación en la fuente", ""));
+    listaE.forEach(function (v) { selE.appendChild(new Option(v, v)); });
+    state.estado = (keepE && listaE.indexOf(keepE) > -1) ? keepE : "";
+    selE.value = state.estado;
+    selE.disabled = !listaE.length;
+
+    buildMunicipioSelect();
+  }
+
+  function buildMunicipioSelect() {
+    var selM = $("municipioSelect");
+    var muni = {};
+    state.rows.forEach(function (r) {
+      if (!r.municipio) return;
+      if (state.estado && r.estado !== state.estado) return;
+      muni[r.municipio] = true;
+    });
+    var lista = Object.keys(muni).sort(function (a, b) { return a.localeCompare(b, "es"); });
+
+    var keepM = state.municipio;
+    selM.innerHTML = "";
+    selM.appendChild(new Option(lista.length ? "Todos los municipios" : "Sin municipios en la selección", ""));
+    lista.forEach(function (v) { selM.appendChild(new Option(v, v)); });
+    state.municipio = (keepM && lista.indexOf(keepM) > -1) ? keepM : "";
+    selM.value = state.municipio;
+    selM.disabled = !lista.length;
+  }
+
+  function setMine(on) {
+    state.onlyMine = !!on;
+    var t = $("mineToggle");
+    t.setAttribute("aria-pressed", state.onlyMine ? "true" : "false");
+    t.classList.toggle("is-on", state.onlyMine);
+    t.querySelector(".switch-brand__label").textContent = state.onlyMine ? "Solo mis estaciones" : "Mercado total";
+  }
+
   /* ---------------------------------------------------------
      5. Selección de datos
      --------------------------------------------------------- */
 
+  /* Filas del periodo seleccionado, sin filtros del usuario: es la base de
+     mercado contra la que se calculan los promedios locales, para que aislar
+     "mis estaciones" no deforme la referencia. */
+  function periodRows() {
+    return state.rows.filter(function (r) { return !state.period || r.fecha === state.period; });
+  }
+
   function scoped() {
-    return state.rows.filter(function (r) {
-      if (state.period && r.fecha !== state.period) return false;
-      if (state.region && r[state.dimension.key] !== state.region) return false;
+    return periodRows().filter(function (r) {
+      if (state.estado && r.estado !== state.estado) return false;
+      if (state.municipio && r.municipio !== state.municipio) return false;
+      if (state.onlyMine && !r._own) return false;
       return true;
     });
+  }
+
+  /* ---------------------------------------------------------
+     5 bis. Promedios locales y diferencial (semáforo comercial)
+     --------------------------------------------------------- */
+
+  var mercado = { municipio: {}, estado: {}, nacional: {} };
+
+  function computeMercado() {
+    var acc = { municipio: {}, estado: {}, nacional: {} };
+    var sumar = function (bolsa, clave, prod, valor) {
+      var k = clave + "|" + prod;
+      if (!bolsa[k]) bolsa[k] = { t: 0, n: 0 };
+      bolsa[k].t += valor; bolsa[k].n++;
+    };
+    periodRows().forEach(function (r) {
+      ["regular", "premium", "diesel"].forEach(function (p) {
+        if (r[p] === null) return;
+        sumar(acc.nacional, "MX", p, r[p]);
+        if (r.estado) sumar(acc.estado, r.estado, p, r[p]);
+        if (r.municipio) sumar(acc.municipio, r.estado + "»" + r.municipio, p, r[p]);
+      });
+    });
+    var prom = function (bolsa) {
+      var out = {}, k;
+      for (k in bolsa) if (bolsa.hasOwnProperty(k)) out[k] = { avg: bolsa[k].t / bolsa[k].n, n: bolsa[k].n };
+      return out;
+    };
+    mercado = { municipio: prom(acc.municipio), estado: prom(acc.estado), nacional: prom(acc.nacional) };
+  }
+
+  /* Referencia local del producto activo, con degradación municipio → estado
+     → nacional. Un municipio con una sola estación no es referencia: en ese
+     caso sube al estado. */
+  function referenciaLocal(r, prod) {
+    var m = r.municipio && mercado.municipio[r.estado + "»" + r.municipio + "|" + prod];
+    if (m && m.n >= 2) return { avg: m.avg, n: m.n, alcance: "municipio", etiqueta: r.municipio };
+    var e = r.estado && mercado.estado[r.estado + "|" + prod];
+    if (e && e.n >= 2) return { avg: e.avg, n: e.n, alcance: "estado", etiqueta: r.estado };
+    var n = mercado.nacional["MX|" + prod];
+    return n ? { avg: n.avg, n: n.n, alcance: "nacional", etiqueta: "nacional" } : null;
+  }
+
+  function spreadDe(r, prod) {
+    if (r[prod] === null) return null;
+    var ref = referenciaLocal(r, prod);
+    if (!ref) return null;
+    return { valor: r[prod] - ref.avg, ref: ref };
   }
 
   function pricesOf(rows, product) {
@@ -581,7 +879,11 @@
     if (idx < 0 || idx + 1 >= ps.length) return null;
     var prev = ps[idx + 1];
     var rows = state.rows.filter(function (r) {
-      return r.fecha === prev && (!state.region || r[state.dimension.key] === state.region);
+      if (r.fecha !== prev) return false;
+      if (state.estado && r.estado !== state.estado) return false;
+      if (state.municipio && r.municipio !== state.municipio) return false;
+      if (state.onlyMine && !r._own) return false;
+      return true;
     });
     return avg(pricesOf(rows, product));
   }
@@ -803,7 +1105,11 @@
         label: PRODUCTS[p].label,
         data: ps.map(function (f) {
           var rows = state.rows.filter(function (r) {
-            return r.fecha === f && (!state.region || r[state.dimension.key] === state.region);
+            if (r.fecha !== f) return false;
+            if (state.estado && r.estado !== state.estado) return false;
+            if (state.municipio && r.municipio !== state.municipio) return false;
+            if (state.onlyMine && !r._own) return false;
+            return true;
           });
           var m = avg(pricesOf(rows, p));
           return m === null ? null : +m.toFixed(2);
@@ -942,16 +1248,26 @@
     });
 
     var key = state.sortKey, dir = state.sortDir === "asc" ? 1 : -1;
+    var prod = state.product;
+
+    var valor = function (r) {
+      // Se ordena por la ubicación que muestra la columna; sin ubicación, al final.
+      if (key === "ubicacion") return [r.municipio, r.estado].filter(Boolean).join(", ") || null;
+      if (key === "spread") { var sp = spreadDe(r, prod); return sp ? sp.valor : null; }
+      if (key === "estacion") return r.estacion || r.permiso || null;
+      var v = r[key];
+      return (v === undefined || v === "" ) ? null : v;
+    };
+
+    /* Los vacíos siempre al final, sin importar el sentido del orden: una
+       columna de precios se ordena por precios, no por huecos. */
     list.sort(function (a, b) {
-      var va, vb;
-      if (key === "ubicacion") { va = [a.municipio, a.estado, a.direccion].filter(Boolean).join(" "); vb = [b.municipio, b.estado, b.direccion].filter(Boolean).join(" "); }
-      else { va = a[key]; vb = b[key]; }
-      if (typeof va === "number" || typeof vb === "number") {
-        if (va === null || va === undefined) return 1;
-        if (vb === null || vb === undefined) return -1;
-        return (va - vb) * dir;
-      }
-      return String(va || "").localeCompare(String(vb || ""), "es") * dir;
+      var va = valor(a), vb = valor(b);
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb), "es") * dir;
     });
     return list;
   }
@@ -974,21 +1290,41 @@
           (r._own ? '<span class="badge badge--own">Sucursal propia</span>' : "") + "</div>" +
           (r.marca ? '<div class="cell-addr">' + esc(r.marca) + "</div>" : "") + "</td>" +
         '<td><span class="cell-permit">' + (esc(r.permiso) || "—") + "</span></td>" +
-        "<td>" + esc([r.municipio, r.estado, r.region].filter(Boolean).join(", ") || "—") +
+        "<td>" + (r.inferido ? '<span class="inferido" data-tip data-tip-title="Ubicación inferida" data-tip-body="Deducida del domicilio, no del catálogo. Captura Estado y Municipio en catalogo_estaciones.csv para tenerla confirmada.">≈</span> ' : "") +
+          esc([r.municipio, r.estado, r.region].filter(Boolean).join(", ") || "—") +
           (r.direccion ? '<div class="cell-addr">' + esc(r.direccion) + "</div>" : "") + "</td>" +
         cell(r, "regular", lo, hi, p) + cell(r, "premium", lo, hi, p) + cell(r, "diesel", lo, hi, p) +
+        spreadCell(r, p) +
       "</tr>";
     }).join("");
 
     $("tbody").innerHTML = html;
     $("emptyTable").hidden = list.length > 0;
     if (!list.length) $("emptyTable").textContent = "Sin resultados. Ajusta la búsqueda o los filtros.";
+    var head = $("spreadHead");
+    if (head) head.childNodes[0].nodeValue = "Δ " + PRODUCTS[p].label + " vs. local ";
     $("tableCount").textContent = list.length.toLocaleString("es-MX") + " estaciones listadas · " +
       (state.period ? fmtPeriod(state.period) : "todos los periodos") +
-      (state.region ? " · " + state.region : "");
+      (state.municipio ? " · " + state.municipio : "") +
+      (state.estado ? " · " + state.estado : "") +
+      (state.onlyMine ? " · solo mis estaciones" : "");
     $("pageInfo").textContent = "Página " + state.page + " de " + pages;
     $("prevPage").disabled = state.page <= 1;
     $("nextPage").disabled = state.page >= pages;
+
+    /* Semáforo comercial: por debajo del promedio local = combate por volumen;
+       por encima = margen alto con riesgo de perder volumen. */
+    function spreadCell(r, prod) {
+      var sp = spreadDe(r, prod);
+      if (!sp) return '<td class="is-num na">N/D</td>';
+      var signo = sp.valor > 0 ? "+" : sp.valor < 0 ? "−" : "";
+      var clase = sp.valor < -0.005 ? "spread--bajo" : sp.valor > 0.005 ? "spread--alto" : "spread--par";
+      var tip = "Promedio " + (sp.ref.alcance === "nacional" ? "nacional" : sp.ref.alcance + " " + sp.ref.etiqueta) +
+                ": " + money(sp.ref.avg) + " (" + sp.ref.n.toLocaleString("es-MX") + " estaciones)";
+      return '<td class="is-num"><span class="spread ' + clase + '" data-tip-title="' +
+             (sp.valor < 0 ? "Por debajo del mercado local" : sp.valor > 0 ? "Por encima del mercado local" : "En el promedio local") +
+             '" data-tip-body="' + esc(tip) + '">' + signo + Math.abs(sp.valor).toFixed(2) + "</span></td>";
+    }
 
     function cell(r, prod, lo, hi, active) {
       var v = r[prod];
@@ -1011,6 +1347,8 @@
      --------------------------------------------------------- */
 
   function render() {
+    computeMercado();
+    state.dimension = detectDimension();
     var rows = scoped();
     renderKpis(rows);
     renderExtremes(rows);
@@ -1019,9 +1357,213 @@
     renderCompare(rows);
     renderHist(rows);
     renderTable(rows);
+    renderSimulador();
     $("footerUpdated").textContent = state.updatedAt
       ? "Actualizado " + fmtDateTime(state.updatedAt) + " · origen: " + state.origin
       : "";
+  }
+
+  /* ---------------------------------------------------------
+     10 bis. Simulador táctico de precios
+     --------------------------------------------------------- */
+
+  var sim = { permiso: "", precio: null };
+
+  /* Universo con el que compite la estación: su municipio si hay referencia,
+     si no su estado y en último caso el país. */
+  function universoLocal(r, prod) {
+    var ref = referenciaLocal(r, prod);
+    if (!ref) return { rows: [], ref: null };
+    var base = periodRows().filter(function (x) { return x[prod] !== null; });
+    if (ref.alcance === "municipio") {
+      base = base.filter(function (x) { return x.estado === r.estado && x.municipio === r.municipio; });
+    } else if (ref.alcance === "estado") {
+      base = base.filter(function (x) { return x.estado === r.estado; });
+    }
+    return { rows: base, ref: ref };
+  }
+
+  function lugar(precio, precios) {
+    var n = 0;
+    for (var i = 0; i < precios.length; i++) if (precios[i] < precio - 0.0001) n++;
+    return n + 1;
+  }
+
+  function candidatasSimulador() {
+    var propias = state.rows.filter(function (r) { return r._own; });
+    if (propias.length) return { rows: propias, propias: true };
+    var conUbic = state.rows.filter(function (r) { return r.estado; });
+    conUbic.sort(function (a, b) {
+      return String(a.estacion || a.permiso).localeCompare(String(b.estacion || b.permiso), "es");
+    });
+    return { rows: conUbic.slice(0, 300), propias: false };
+  }
+
+  function renderSimulador() {
+    var selec = $("simStation"), salida = $("simResult");
+    if (!selec || !salida) return;
+
+    var cand = candidatasSimulador();
+    var previo = sim.permiso;
+    selec.innerHTML = "";
+
+    if (!cand.rows.length) {
+      selec.appendChild(new Option("Sin estaciones con ubicación conocida", ""));
+      selec.disabled = true;
+      $("simPrice").disabled = true;
+      salida.innerHTML = '<p class="sim__empty">Para simular hace falta saber dónde compite la estación. ' +
+        'Captura Estado y Municipio en <code>catalogo_estaciones.csv</code> y, si son tuyas, sus permisos ' +
+        'en <code>MIS_ESTACIONES</code> dentro de <code>config.js</code>.</p>';
+      return;
+    }
+
+    selec.disabled = false;
+    $("simPrice").disabled = false;
+    cand.rows.forEach(function (r) {
+      var etiqueta = (r.estacion || r.permiso) + (r.municipio ? " · " + r.municipio : r.estado ? " · " + r.estado : "");
+      selec.appendChild(new Option(etiqueta, r.permiso));
+    });
+    if (previo && cand.rows.some(function (r) { return r.permiso === previo; })) selec.value = previo;
+    else { sim.permiso = cand.rows[0].permiso; sim.precio = null; selec.value = sim.permiso; }
+
+    calcularSimulacion(!cand.propias);
+  }
+
+  function filaSim() {
+    var p = sim.permiso;
+    var enc = state.rows.filter(function (r) { return r.permiso === p && (!state.period || r.fecha === state.period); });
+    return enc[0] || null;
+  }
+
+  function calcularSimulacion(avisoAjeno) {
+    var salida = $("simResult");
+    var r = filaSim();
+    var prod = state.product;
+    if (!r) { salida.innerHTML = '<p class="sim__empty">Selecciona una estación.</p>'; return; }
+
+    if (r[prod] === null) {
+      salida.innerHTML = '<p class="sim__empty">Esta estación no reporta ' + PRODUCTS[prod].label +
+        ' en el periodo. Cambia de producto en los controles superiores.</p>';
+      $("simPrice").value = "";
+      return;
+    }
+
+    var actual = r[prod];
+    if (sim.precio === null || !isFinite(sim.precio)) sim.precio = actual;
+    $("simPrice").value = sim.precio.toFixed(2);
+
+    var uni = universoLocal(r, prod);
+    var precios = uni.rows.map(function (x) { return x[prod]; }).sort(function (a, b) { return a - b; });
+    var total = precios.length;
+    var otros = precios.slice();
+    var i = otros.indexOf(actual);
+    if (i > -1) otros.splice(i, 1);          // la propia estación no compite consigo misma
+
+    var lugarActual = lugar(actual, otros);
+    var lugarSim = lugar(sim.precio, otros);
+    var barata = otros.length ? Math.min.apply(null, otros) : actual;
+    var promedio = uni.ref ? uni.ref.avg : actual;
+    var ambito = uni.ref ? (uni.ref.alcance === "nacional" ? "el país" :
+                            uni.ref.alcance === "estado" ? uni.ref.etiqueta : uni.ref.etiqueta) : "la zona";
+
+    var delta = sim.precio - actual;
+    var movimiento;
+    if (lugarSim === lugarActual) {
+      movimiento = "Conservarías el lugar <strong>" + lugarActual + "</strong> de " + total + " en " + esc(ambito) + ".";
+    } else if (lugarSim < lugarActual) {
+      movimiento = "Pasarías del lugar <strong>" + lugarActual + "</strong> al <strong>" + lugarSim +
+                   "</strong> más económico de " + esc(ambito) + ".";
+    } else {
+      movimiento = "Caerías del lugar <strong>" + lugarActual + "</strong> al <strong>" + lugarSim +
+                   "</strong> de " + total + " en " + esc(ambito) + ".";
+    }
+
+    var vsBarata = sim.precio - barata;
+    var vsProm = sim.precio - promedio;
+
+    salida.innerHTML =
+      '<p class="sim__verdict">' + movimiento + "</p>" +
+      '<div class="sim__grid">' +
+        tarjeta("Precio actual", money(actual), PRODUCTS[prod].label + " · " + (r.estacion || r.permiso)) +
+        tarjeta("Precio simulado", money(sim.precio),
+                (delta === 0 ? "sin cambio" : (delta > 0 ? "+" : "−") + Math.abs(delta).toFixed(2) + " respecto al actual"),
+                delta > 0 ? "alto" : delta < 0 ? "bajo" : "") +
+        tarjeta("Contra la más barata", (vsBarata >= 0 ? "+" : "−") + Math.abs(vsBarata).toFixed(2),
+                "la más económica de " + ambito + " está en " + money(barata),
+                vsBarata > 0 ? "alto" : "bajo") +
+        tarjeta("Contra el promedio", (vsProm >= 0 ? "+" : "−") + Math.abs(vsProm).toFixed(2),
+                "promedio " + (uni.ref ? uni.ref.alcance : "local") + " " + money(promedio) +
+                " · " + total.toLocaleString("es-MX") + " estaciones",
+                vsProm > 0 ? "alto" : "bajo") +
+      "</div>" +
+      (uni.ref && uni.ref.alcance !== "municipio"
+        ? '<p class="sim__nota">Sin municipio confirmado, la comparación se hace contra ' +
+          (uni.ref.alcance === "estado" ? "todo el estado de " + esc(uni.ref.etiqueta) : "el promedio nacional") +
+          ", que es una referencia más amplia que el mercado real de la estación.</p>"
+        : "") +
+      (avisoAjeno ? '<p class="sim__nota">Esta estación no está declarada como propia. Captura tus permisos CRE en ' +
+        '<code>MIS_ESTACIONES</code> (config.js) para que el simulador abra con las tuyas.</p>' : "");
+
+    function tarjeta(titulo, valor, pie, tono) {
+      return '<div class="sim__card' + (tono ? " sim__card--" + tono : "") + '">' +
+             '<p class="sim__card-label">' + titulo + "</p>" +
+             '<p class="sim__card-value">' + valor + "</p>" +
+             '<p class="sim__card-foot">' + esc(pie) + "</p></div>";
+    }
+  }
+
+  /* ---------------------------------------------------------
+     10 ter. Exportación de la vista filtrada
+     --------------------------------------------------------- */
+
+  function exportarCsv() {
+    var prod = state.product;
+    var filas = tableRows(scoped());
+    if (!filas.length) return;
+
+    var cab = ["Fecha", "Permiso CRE", "Estacion", "Municipio", "Estado", "Origen ubicacion",
+               "Direccion", "Regular", "Premium", "Diesel",
+               "Producto analizado", "Promedio local", "Alcance del promedio",
+               "Diferencial vs promedio local", "Posicion comercial", "Sucursal propia"];
+
+    var lineas = [cab.join(",")];
+    filas.forEach(function (r) {
+      var sp = spreadDe(r, prod);
+      var pos = !sp ? "" : sp.valor < -0.005 ? "Por debajo del promedio local"
+                        : sp.valor > 0.005 ? "Por encima del promedio local" : "En el promedio local";
+      lineas.push([
+        r.fecha, r.permiso, r.estacion, r.municipio, r.estado,
+        r.estado ? (r.inferido ? "Inferido del domicilio" : "Catálogo") : "",
+        r.direccion,
+        r.regular === null ? "" : r.regular.toFixed(2),
+        r.premium === null ? "" : r.premium.toFixed(2),
+        r.diesel === null ? "" : r.diesel.toFixed(2),
+        PRODUCTS[prod].label,
+        sp ? sp.ref.avg.toFixed(4) : "",
+        sp ? sp.ref.alcance + (sp.ref.alcance === "nacional" ? "" : " " + sp.ref.etiqueta) : "",
+        sp ? sp.valor.toFixed(2) : "",
+        pos,
+        r._own ? "Sí" : "No"
+      ].map(csvCampo).join(","));
+    });
+
+    var nombre = "lbgas23_" + prod + "_" +
+                 (state.period || "periodo") +
+                 (state.municipio ? "_" + slug(state.municipio) : state.estado ? "_" + slug(state.estado) : "") +
+                 (state.onlyMine ? "_mis-estaciones" : "") + ".csv";
+
+    // El BOM hace que Excel respete los acentos al abrir el archivo.
+    var blob = new Blob(["\ufeff" + lineas.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = nombre;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  }
+
+  function csvCampo(v) {
+    var s = String(v === null || v === undefined ? "" : v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
   /* ---------------------------------------------------------
@@ -1067,13 +1609,56 @@
         btn.classList.add("is-active"); btn.setAttribute("aria-selected", "true");
         state.product = btn.getAttribute("data-product");
         if (["regular", "premium", "diesel"].indexOf(state.sortKey) > -1) state.sortKey = state.product;
+        sim.precio = null;
         state.page = 1;
         render();
       });
     });
 
-    $("periodSelect").addEventListener("change", function () { state.period = this.value; state.page = 1; render(); });
-    $("regionSelect").addEventListener("change", function () { state.region = this.value; state.page = 1; render(); });
+    $("periodSelect").addEventListener("change", function () { state.period = this.value; state.page = 1; sim.precio = null; render(); });
+
+    $("estadoSelect").addEventListener("change", function () {
+      state.estado = this.value;
+      state.municipio = "";
+      buildMunicipioSelect();
+      state.page = 1;
+      render();
+    });
+
+    $("municipioSelect").addEventListener("change", function () {
+      state.municipio = this.value; state.page = 1; render();
+    });
+
+    $("mineToggle").addEventListener("click", function () {
+      setMine(!state.onlyMine); state.page = 1; render();
+    });
+
+    $("exportBtn").addEventListener("click", exportarCsv);
+
+    $("simStation").addEventListener("change", function () {
+      sim.permiso = this.value; sim.precio = null; calcularSimulacion();
+    });
+
+    $("simPrice").addEventListener("input", function () {
+      var v = parseFloat(this.value);
+      sim.precio = isFinite(v) ? v : null;
+      if (sim.precio !== null) calcularSimulacion();
+    });
+
+    document.querySelectorAll(".sim__steps [data-step]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var base = sim.precio;
+        if (base === null || !isFinite(base)) {
+          var r = filaSim();
+          base = r ? r[state.product] : null;
+        }
+        if (base === null) return;
+        sim.precio = Math.max(0, Math.round((base + parseFloat(this.getAttribute("data-step"))) * 100) / 100);
+        calcularSimulacion();
+      });
+    });
+
+    $("simReset").addEventListener("click", function () { sim.precio = null; calcularSimulacion(); });
     $("refreshBtn").addEventListener("click", function () { load(true); });
     $("onlyProduct").addEventListener("change", function () { state.page = 1; render(); });
 
@@ -1142,6 +1727,7 @@
     } catch (e) {}
 
     document.body.setAttribute("data-product", state.product);
+    setMine(false);
     initEvents();
     initTooltip();
 

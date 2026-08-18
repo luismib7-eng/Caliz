@@ -343,3 +343,108 @@ main.wrap{padding-block:22px 40px}
   *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
   html{scroll-behavior:auto}
 }
+
+
+/* =============================================================
+   Módulos de inteligencia comercial
+   Switch de marca · semáforo de diferencial · simulador táctico
+   ============================================================= */
+
+/* ---------- Interruptor Mercado total / Solo mis estaciones ---------- */
+.switch-brand{
+  display:inline-flex;align-items:center;gap:9px;
+  font:inherit;font-size:13px;font-weight:600;color:var(--muted);
+  background:var(--surface);border:1px solid var(--line-strong);border-radius:999px;
+  padding:7px 15px 7px 9px;cursor:pointer;align-self:flex-end;
+  transition:color .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease);
+}
+.switch-brand:hover:not([disabled]){border-color:var(--brand);color:var(--text)}
+.switch-brand[disabled]{opacity:.5;cursor:not-allowed}
+.switch-brand__track{
+  width:34px;height:19px;border-radius:999px;background:var(--surface-2);
+  border:1px solid var(--line-strong);position:relative;flex:none;
+  transition:background .2s var(--ease), border-color .2s var(--ease);
+}
+.switch-brand__knob{
+  position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+  background:var(--muted);transition:transform .2s var(--ease), background .2s var(--ease);
+}
+.switch-brand.is-on{color:#fff;background:var(--brand);border-color:var(--brand)}
+.switch-brand.is-on .switch-brand__track{background:rgba(255,255,255,.28);border-color:transparent}
+.switch-brand.is-on .switch-brand__knob{transform:translateX(15px);background:#fff}
+.switch-brand__count{font-family:var(--font-mono);font-size:11.5px;opacity:.8}
+
+/* ---------- Semáforo comercial ---------- */
+.spread{
+  display:inline-block;font-family:var(--font-mono);font-variant-numeric:tabular-nums;
+  font-size:12px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap;cursor:help;
+}
+.spread--bajo{background:var(--regular-soft);color:var(--regular)}
+.spread--alto{background:var(--premium-soft);color:var(--premium)}
+.spread--par{background:var(--surface-2);color:var(--muted)}
+.th__hint{
+  width:14px;height:14px;border-radius:50%;border:1px solid var(--line-strong);
+  display:inline-grid;place-items:center;font-size:9px;cursor:help;
+  text-transform:none;letter-spacing:0;margin-left:4px;vertical-align:middle;
+}
+.inferido{
+  display:inline-block;font-family:var(--font-mono);font-size:11px;color:var(--accent);
+  cursor:help;margin-right:2px;
+}
+
+/* ---------- Simulador táctico ---------- */
+.sim{padding:0}
+.sim__summary{
+  list-style:none;cursor:pointer;padding:20px;display:flex;align-items:flex-start;
+  justify-content:space-between;gap:16px;
+}
+.sim__summary::-webkit-details-marker{display:none}
+.sim__summary .panel__title{display:block}
+.sim__summary .panel__sub{display:block;margin-top:3px}
+.sim__chevron{color:var(--muted);font-size:15px;transition:transform .2s var(--ease);flex:none;margin-top:2px}
+.sim[open] .sim__chevron{transform:rotate(180deg)}
+.sim__body{padding:0 20px 20px;border-top:1px solid var(--line);margin-top:-4px;padding-top:18px}
+.sim__controls{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px}
+.sim__controls .field{min-width:0}
+.sim__controls .input{min-width:260px}
+.input--num{min-width:140px !important;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.sim__steps{display:flex;gap:6px;flex-wrap:wrap}
+.sim__steps .btn{padding:8px 12px;font-family:var(--font-mono);font-size:12.5px}
+
+.sim__verdict{font-size:15px;line-height:1.5;margin-bottom:14px}
+.sim__verdict strong{font-family:var(--font-mono);color:var(--text)}
+.sim__grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.sim__card{
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:13px 15px;position:relative;overflow:hidden;
+}
+.sim__card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--line-strong)}
+.sim__card--bajo::before{background:var(--regular)}
+.sim__card--alto::before{background:var(--premium)}
+.sim__card-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.sim__card-value{font-family:var(--font-mono);font-size:22px;font-weight:600;letter-spacing:-.02em;margin-top:6px}
+.sim__card--bajo .sim__card-value{color:var(--regular)}
+.sim__card--alto .sim__card-value{color:var(--premium)}
+.sim__card-foot{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4}
+.sim__nota,.sim__empty{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.55;max-width:78ch}
+.sim__empty{margin-top:0}
+.sim code{
+  font-family:var(--font-mono);font-size:11.5px;background:var(--surface-2);
+  padding:1px 5px;border-radius:4px;border:1px solid var(--line);
+}
+
+/* ---------- Herramientas de la tabla ---------- */
+.table-tools__row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+
+@media (max-width:1080px){
+  .sim__grid{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:720px){
+  .switch-brand{width:100%;justify-content:center;align-self:stretch}
+  .sim__grid{grid-template-columns:1fr}
+  .sim__controls .input,.input--num{min-width:0 !important;width:100%}
+  .sim__steps{width:100%}
+  .sim__steps .btn{flex:1}
+  .table-tools__row{flex-direction:column;align-items:stretch}
+  .table-tools__row .btn{justify-content:center}
+}
