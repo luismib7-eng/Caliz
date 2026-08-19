@@ -6,7 +6,9 @@
   "use strict";
 
   var CFG = window.APP_CONFIG || {};
-  var CACHE_KEY = "combustibles:datos";
+  /* La versión va en la llave: si el esquema de fila cambia, la copia guardada
+     de una versión anterior se ignora sola en lugar de romper el render. */
+  var CACHE_KEY = "combustibles:datos:v3";
   var THEME_KEY = "combustibles:tema";
 
   var PRODUCTS = {
@@ -48,7 +50,8 @@
 
   /* El pipeline escribe "No especificado" para no dejar comas vacías en el CSV.
      Para agrupar y filtrar equivale a un dato ausente. */
-  var SIN_DATO = ["no especificado", "sin dato", "sin datos", "n/d", "na", "n/a", "-", "—"];
+  var SIN_DATO = ["no especificado", "sin dato", "sin datos", "n/d", "nd", "na", "n/a",
+                  "-", "—", "null", "undefined"];
 
   function texto(v) {
     var s = String(v === null || v === undefined ? "" : v).trim();
@@ -57,7 +60,8 @@
 
   /* Coordenada decimal válida, o null. */
   function coord(v, tope) {
-    var n = parseFloat(String(v || "").replace(",", "."));
+    if (v === null || v === undefined || v === "") return null;
+    var n = parseFloat(String(v).replace(",", "."));
     return isFinite(n) && n !== 0 && Math.abs(n) <= tope ? n : null;
   }
 
@@ -801,7 +805,12 @@
       var raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       var obj = JSON.parse(raw);
-      return obj && obj.rows && obj.rows.length ? obj : null;
+      if (!obj || !obj.rows || !obj.rows.length) return null;
+      // Verificación de forma: una fila válida trae permiso o estación.
+      var f = obj.rows[0];
+      if (!f || typeof f !== "object" || (!f.permiso && !f.estacion)) return null;
+      obj.rows.forEach(indexRow);   // reconstruye índices derivados tras el JSON
+      return obj;
     } catch (e) { return null; }
   }
 
@@ -1857,6 +1866,7 @@
     refrescarPropias();
     pintarGestor();
     buildControls();
+    state.page = 1;          // el set filtrado cambió: evita quedar en una página vacía
     render();
   }
 
@@ -1868,6 +1878,7 @@
     refrescarPropias();
     pintarGestor();
     buildControls();
+    state.page = 1;
     render();
   }
 
@@ -2309,7 +2320,7 @@
       th.addEventListener("click", function () {
         var key = th.getAttribute("data-sort");
         if (state.sortKey === key) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
-        else { state.sortKey = key; state.sortDir = ["regular", "premium", "diesel"].indexOf(key) > -1 ? "asc" : "asc"; }
+        else { state.sortKey = key; state.sortDir = "asc"; }
         document.querySelectorAll("th.is-sortable").forEach(function (o) { o.removeAttribute("data-dir"); });
         th.setAttribute("data-dir", state.sortDir);
         state.page = 1;

@@ -611,3 +611,24 @@ git add . && git commit -m "Ajustes" && git push
 
 Con la modalidad Cloud no hace falta ninguno de estos pasos para los datos: al actualizarse la hoja,
 el tablero la lee en la siguiente sincronización.
+
+---
+
+## 11. Control de calidad
+
+Reglas que el código sostiene y cómo se verifican.
+
+| Regla | Dónde vive | Verificación |
+|---|---|---|
+| Todo cruce de permisos usa la clave canónica | `permitKey()`: mayúsculas, sin espacios, sin prefijo `CNE/` | Aplicada en el deduplicado, el cruce con catálogo, "mis estaciones", el simulador y el índice de búsqueda |
+| Precios validados con `isFinite` y dentro de $15–$45 | `toNumber()` | Los valores centinela del XML (0.01, 1.00) se descartan y se cuentan en la nota superior |
+| Los nulos nunca entran a un promedio | `pricesOf()`, `avg()`, `quantile()` | Ningún agregado asume 0 en celda vacía |
+| Menos de 2 datos degrada sin error | Dispersión, comparativa, histograma, marcas | Cada bloque muestra su estado vacío explicativo |
+| Los nulos van al final al ordenar | comparador de `tableRows()` | Verificado en ambos sentidos y en las tres columnas de precio |
+| Toda mutación del set filtrado reinicia la página | manejadores de periodo, estado, municipio, producto, búsqueda, interruptor y gestor | Probado desde la página 41: al filtrar cae a "Página 1 de 6" |
+| `localStorage` siempre entre `try/catch` | caché, tema y "mis estaciones" | Con `localStorage` bloqueado, el tablero carga igual |
+| Copia guardada con versión y validación de forma | `CACHE_KEY` incluye `:v3`; `readCache()` valida la primera fila | Una copia corrupta se ignora y la carga sigue |
+| Toda promesa con `.catch` | cadena de fuentes, catálogo, histórico | Si la fuente primaria falla, degrada al respaldo local |
+
+Los estados vacíos son parte del diseño, no un pendiente: cuando un bloque no tiene datos
+suficientes explica qué falta y dónde capturarlo, en lugar de mostrar un cero que se lea como dato.
