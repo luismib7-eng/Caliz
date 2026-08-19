@@ -107,7 +107,7 @@ def leer_catalogo_xml(ruta):
     sugiera. Así funciona aunque el esquema del endpoint cambie de nombres.
     """
     idx = {}
-    raiz = ET.parse(ruta).getroot()
+    raiz = leer_xml(ruta)
 
     def compacta(nombre):
         """Etiqueta comparable: sin espacio de nombres, sin acentos, sin
@@ -175,7 +175,11 @@ def leer_catalogo(ruta):
         return {}
     if not os.path.exists(ruta):
         sys.exit("No se encontró el catálogo: %s" % ruta)
-    if ruta.lower().endswith(".xml"):
+    # Se decide por el contenido, no por la extensión: el archivo descargado
+    # del portal a veces llega guardado como .html o sin extensión.
+    with open(ruta, "rb") as fh:
+        inicio = fh.read(400).lstrip(b"\xef\xbb\xbf").lstrip()
+    if ruta.lower().endswith(".xml") or inicio[:1] == b"<":
         return leer_catalogo_xml(ruta)
 
     idx = {}
@@ -225,11 +229,32 @@ def leer_catalogo(ruta):
     return idx
 
 
+def leer_xml(ruta):
+    """
+    Lee el XML tolerando basura al inicio: un BOM UTF-8, saltos de línea o
+    espacios antes de la declaración hacen fallar a ElementTree con
+    "not well-formed, line 1, column 0", un error que no dice nada sobre su
+    causa real.
+    """
+    with open(ruta, "rb") as fh:
+        datos = fh.read()
+    if datos[:3] == b"\xef\xbb\xbf":
+        datos = datos[3:]
+    datos = datos.lstrip()
+    corte = datos.find(b"<")
+    if corte > 0:
+        datos = datos[corte:]
+    try:
+        return ET.fromstring(datos)
+    except ET.ParseError as e:
+        sys.exit("El XML no se pudo interpretar (%s). Primeros bytes: %r" % (e, datos[:80]))
+
+
 def convertir(ruta_xml, catalogo, minimo, maximo):
     if not os.path.exists(ruta_xml):
         sys.exit("No se encontró el XML: %s" % ruta_xml)
 
-    raiz = ET.parse(ruta_xml).getroot()
+    raiz = leer_xml(ruta_xml)
     fecha = raiz.get("fecha_generacion", "")
 
     registros, orden = {}, []
