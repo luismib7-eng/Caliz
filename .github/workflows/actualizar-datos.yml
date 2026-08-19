@@ -5,7 +5,7 @@ on:
   schedule:
     # Diario 13:00 UTC = 07:00 CDMX
     - cron: "0 13 * * *"
-    # Lunes 14:00 UTC = 08:00 CDMX
+    # Lunes 14:00 UTC = 08:00 CDMX (corte semanal)
     - cron: "0 14 * * 1"
 
 permissions:
@@ -18,7 +18,6 @@ jobs:
       - name: Clonar el repositorio
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
       - name: Preparar Python
@@ -26,27 +25,51 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Descargar XML oficial de la CNE
+      - name: Descargar datos oficiales con respaldo multi-fuente
+        id: download_step
         env:
-          URL_CONFIGURADA: ${{ vars.URL_XML }}
+          URL_CUSTOM: ${{ vars.URL_XML }}
         run: |
-          URL="${URL_CONFIGURADA:-https://www.cne.gob.mx/media/precios/precios.xml}"
-          echo "Descargando desde: $URL"
-          
-          curl -sSL --retry 5 --retry-delay 3 --connect-timeout 20 --max-time 60 \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36" \
-            -H "Accept: application/xml,text/xml,*/*" \
-            -o precios_del_dia.xml "$URL"
-          
-          # Validar que el archivo descargado sea un XML válido y no esté vacío
-          if [ ! -s precios_del_dia.xml ] || ! head -n 5 precios_del_dia.xml | grep -q "<"; then
-            echo "::error::El archivo descargado no es un XML válido o el portal está inaccesible."
-            head -n 20 precios_del_dia.xml
-            exit 1
-          fi
-          echo "XML descargado exitosamente ($(stat -c%s precios_del_dia.xml) bytes)."
+          # Lista de URLs oficiales y espejos
+          URLS=(
+            "${URL_CUSTOM}"
+            "https://www.cne.gob.mx/media/precios/precios.xml"
+            "https://publicacionexterna.cre.gob.mx/precios/precios.xml"
+            "https://raw.githubusercontent.com/luismib7-eng/monitor-combustibles/main/precios_del_dia.xml"
+          )
 
-      - name: Convertir, acumular y generar reporte
+          DESCARGADO=false
+
+          for URL in "${URLS[@]}"; do
+            if [ -z "$URL" ]; then continue; fi
+            echo "Intentando descargar desde: $URL"
+            
+            HTTP_CODE=$(curl -sSL -w "%{http_code}" -o temp_precios.xml \
+              --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 45 \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36" \
+              -H "Accept: application/xml,text/xml,*/*" \
+              "$URL") || true
+
+            # Verificar que sea un XML real con la etiqueta <precios o <estacion
+            if [ "$HTTP_CODE" = "200" ] && [ -s temp_precios.xml ] && grep -q -E "(<precios|<estacion)" temp_precios.xml; then
+              mv temp_precios.xml precios_del_dia.xml
+              echo "✅ XML válido obtenido desde $URL ($(stat -c%s precios_del_dia.xml) bytes)."
+              DESCARGADO=true
+              break
+            else
+              echo "⚠️ Falló $URL (HTTP $HTTP_CODE o contenido no XML)."
+            fi
+          done
+
+          if [ "$DESCARGADO" = false ]; then
+            echo "::warning::El portal de la CNE/CRE no respondió o bloqueó la IP de GitHub. Se mantiene el corte previo."
+            echo "skip_process=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_process=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Convertir, enriquecer y generar reportes
+        if: steps.download_step.outputs.skip_process != 'true'
         run: |
           GEO_ARGS=""
           if [ -f "entidades_mx.geojson" ]; then GEO_ARGS="$GEO_ARGS --geojson entidades_mx.geojson"; fi
@@ -61,11 +84,13 @@ jobs:
                   $GEO_ARGS
 
       - name: Publicar cambios en el repositorio
+        if: steps.download_step.outputs.skip_process != 'true'
         run: |
-          rm -f precios_del_dia.xml
+          rm -f precios_del_dia.xml temp_precios.xml
           
+          # Verificar si realmente hubo cambios en los datos
           if git diff --quiet -- fallback.csv historico.csv reporte_mercado.csv catalogo_estaciones.csv; then
-            echo "Sin cambios: la fecha ya estaba cargada."
+            echo "Sin cambios: los precios del periodo ya estaban cargados."
             exit 0
           fi
           
@@ -74,5 +99,5 @@ jobs:
           git add fallback.csv historico.csv reporte_mercado.csv
           if [ -f "catalogo_estaciones.csv" ]; then git add catalogo_estaciones.csv; fi
           
-          git commit -m "Precios actualizados: $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git commit -m "Actualización de precios: $(date -u +'%Y-%m-%d %H:%M UTC') [skip ci]"
           git push origin main || git push
