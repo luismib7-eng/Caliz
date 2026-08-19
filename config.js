@@ -39,6 +39,12 @@ window.APP_CONFIG = {
      de modo que actualizarlo no obliga a tocar esta configuración. */
   FALLBACK_CSV: "fallback.csv",
 
+  /* Reporte estilo "Quién es Quién en los Precios" que genera xml_a_csv.py con
+     --reporte: nacional, por marca y por región, un renglón por bloque. El
+     tablero calcula el panel en vivo desde el padrón; este archivo sirve como
+     registro semanal para consulta y respaldo. */
+  REPORT_CSV: "reporte_mercado.csv",
+
   /* Serie histórica ligera de promedios diarios (la genera xml_a_csv.py con
      --historico). Alimenta la gráfica de tendencia y el delta de las tarjetas
      KPI sin cargar un padrón completo por cada día. Deja "" para desactivarla. */
@@ -85,10 +91,12 @@ window.APP_CONFIG = {
      Captura aquí los permisos CRE de tus estaciones: es la vía confiable,
      porque la razón social en el catálogo puede no incluir la marca comercial. */
   MIS_ESTACIONES: {
-    /* Los permisos son la única vía confiable. En el catálogo nacional no
+    /* Semilla inicial. La selección real se hace con el botón "Mis estaciones"
+       del encabezado (hasta 5) y se guarda en este navegador; a partir de esa
+       primera vez, localStorage manda sobre esta lista.
+       Los permisos son la única vía confiable: en el catálogo nacional no
        existe ninguna razón social con "LB GAS", y "Servicio Bautista" solo
-       coincide con una estación de Oaxaca (PL/4799/EXP/ES/2015) que no es
-       tuya: por eso la lista de patrones va vacía. */
+       coincide con PL/4799/EXP/ES/2015, una estación de Oaxaca que no es tuya. */
     permisos: [],
     patrones: []
   },

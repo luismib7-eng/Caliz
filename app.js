@@ -33,7 +33,7 @@
     origin: ""
   };
 
-  var charts = { trend: null, compare: null, hist: null };
+  var charts = { trend: null, compare: null, hist: null, marcas: null };
   var $ = function (id) { return document.getElementById(id); };
 
   /* ---------------------------------------------------------
@@ -392,18 +392,44 @@
   }
 
   /* Sucursales propias declaradas en config.js. Se resuelve una sola vez. */
+  /* ---------------------------------------------------------
+     Mis estaciones: hasta 5 permisos elegidos en la interfaz.
+     Se guardan en localStorage; config.js queda como respaldo inicial.
+     --------------------------------------------------------- */
+
+  var MIS_KEY = "combustibles:mis-estaciones";
+  var MIS_MAX = 5;
+  var misPermisos = [];
+
+  function cargarMisPermisos() {
+    var guardado = null;
+    try {
+      var raw = localStorage.getItem(MIS_KEY);
+      if (raw) guardado = JSON.parse(raw);
+    } catch (e) { guardado = null; }
+    var base = (guardado && guardado.length !== undefined)
+      ? guardado
+      : ((CFG.MIS_ESTACIONES && CFG.MIS_ESTACIONES.permisos) || []);
+    misPermisos = [];
+    for (var i = 0; i < base.length && misPermisos.length < MIS_MAX; i++) {
+      var k = String(base[i] || "").toUpperCase().replace(/\s+/g, "");
+      if (!k) continue;
+      k = k.indexOf("CNE/") === 0 ? k.slice(4) : k;
+      if (misPermisos.indexOf(k) === -1) misPermisos.push(k);
+    }
+  }
+
+  function guardarMisPermisos() {
+    try { localStorage.setItem(MIS_KEY, JSON.stringify(misPermisos)); } catch (e) {}
+  }
+
   var MIAS = (function () {
     var cfg = CFG.MIS_ESTACIONES || {};
-    var permisos = {}, patrones = [];
-    (cfg.permisos || []).forEach(function (p) {
-      var k = String(p || "").toUpperCase().replace(/\s+/g, "");
-      if (!k) return;
-      permisos[k.indexOf("CNE/") === 0 ? k.slice(4) : k] = true;
-    });
+    var patrones = [];
     (cfg.patrones || []).forEach(function (t) {
       if (String(t || "").trim()) patrones.push(t);
     });
-    return { permisos: permisos, patrones: patrones, activo: Object.keys(permisos).length > 0 || patrones.length > 0 };
+    return { patrones: patrones, activo: true };
   })();
 
   /* Marcas a vigilar (config.MARCAS_COMPETENCIA), reconocidas por la columna
@@ -425,6 +451,11 @@
     return { nombre: m, frase: m };
   });
 
+  /* Recalcula la marca propia de todas las filas tras cambiar la selección. */
+  function refrescarPropias() {
+    state.rows.forEach(function (r) { r._own = esPropia(r); });
+  }
+
   function detectaMarca(r) {
     var campo = reglaPalabra((r.marca || "") + " " + (r.estacion || ""));
     for (var i = 0; i < MARCAS.length; i++) {
@@ -434,8 +465,8 @@
   }
 
   function esPropia(r) {
-    if (!MIAS.activo) return false;
-    if (r.permiso && MIAS.permisos[permitKey(r.permiso)]) return true;
+    if (r.permiso && misPermisos.indexOf(permitKey(r.permiso)) > -1) return true;
+    if (!MIAS.patrones.length) return false;
     var campo = reglaPalabra((r.estacion || "") + " " + (r.marca || ""));
     for (var i = 0; i < MIAS.patrones.length; i++) {
       if (contienePalabras(campo, MIAS.patrones[i])) return true;
@@ -642,6 +673,7 @@
       .then(function (res) {
         quality = res.quality;
         state.rows = res.rows;
+        refrescarPropias();
         state.updatedAt = new Date();
         state.origin = res.src.origin;
         saveCache(res.rows);
@@ -832,7 +864,7 @@
     toggle.disabled = !mias;
     toggle.title = mias
       ? "Aísla tus " + mias + " estación(es); los promedios del mercado se siguen calculando con el padrón completo."
-      : "Aún no hay estaciones propias identificadas: captura sus permisos CRE en MIS_ESTACIONES (config.js).";
+      : "Aún no eliges estaciones: usa el botón \u201cMis estaciones\u201d para agregar hasta 5.";
     if (!mias && state.onlyMine) setMine(false);
 
     var nota = [state.rows.length.toLocaleString("es-MX") + " estaciones", "origen: " + state.origin];
@@ -1576,6 +1608,8 @@
     renderHist(rows);
     renderTable(rows);
     renderCompetencia(rows);
+    renderMisEstaciones();
+    renderProfeco(rows);
     renderSimulador();
     $("footerUpdated").textContent = state.updatedAt
       ? "Actualizado " + fmtDateTime(state.updatedAt) + " · origen: " + state.origin
@@ -1637,6 +1671,252 @@
   }
 
   /* ---------------------------------------------------------
+     9 quater. Reporte estilo "Quién es Quién en los Precios"
+
+     Nota metodológica: Profeco publica el margen de ganancia con estimaciones
+     de la SENER (precio de referencia en TAR, IEPS y estímulos) que no vienen
+     en las publicaciones de la CNE. Aquí el "margen" se sustituye por el
+     DIFERENCIAL contra el precio más bajo del periodo en el mismo ámbito, que
+     es medible con los datos disponibles y se etiqueta como tal.
+     --------------------------------------------------------- */
+
+  var profVista = "marcas";
+
+  function renderProfeco(rows) {
+    var prod = state.product;
+    $("profecoSub").textContent = profVista === "marcas"
+      ? "Precio promedio y diferencial por marca · " + PRODUCTS[prod].label +
+        " · " + (state.period ? fmtPeriod(state.period) : "todos los periodos")
+      : "Extremos y dispersión en las 8 regiones de la Política Pública de Almacenamiento Mínimo · " +
+        PRODUCTS[prod].label;
+
+    if (profVista === "marcas") renderMarcasChart(rows);
+    else renderRegiones(rows);
+  }
+
+  function renderMarcasChart(rows) {
+    destroy("marcas");
+    var el = $("emptyMarcas"), prod = state.product;
+    var grupos = {};
+    rows.forEach(function (r) {
+      if (!r._marca || r[prod] === null) return;
+      (grupos[r._marca] = grupos[r._marca] || []).push(r[prod]);
+    });
+    var lista = Object.keys(grupos).map(function (k) {
+      var v = grupos[k].slice().sort(function (a, b) { return a - b; });
+      return { marca: k, avg: avg(v), min: v[0], n: v.length };
+    }).sort(function (a, b) { return b.avg - a.avg; });
+
+    if (lista.length < 2) {
+      el.hidden = false;
+      el.textContent = "Se necesitan al menos dos marcas reconocidas en la selección. " +
+        "El padrón publica la razón social, no la bandera: llena la columna Marca del catálogo para ampliar la cobertura.";
+      return;
+    }
+    el.hidden = true;
+
+    var base = Math.min.apply(null, lista.map(function (d) { return d.min; }));
+    var t = chartTheme(), opts = baseOptions(t);
+    opts.scales.x.stacked = false;
+    opts.scales.y.beginAtZero = false;
+    opts.plugins.tooltip.callbacks.label = function (ctx) {
+      var d = lista[ctx.dataIndex];
+      return ctx.datasetIndex === 0
+        ? "Promedio $" + d.avg.toFixed(2) + " · " + d.n.toLocaleString("es-MX") + " estaciones"
+        : "Diferencial vs. el más bajo del periodo: $" + (d.avg - base).toFixed(2);
+    };
+
+    charts.marcas = new Chart($("chartMarcas"), {
+      type: "bar",
+      data: {
+        labels: lista.map(function (d) { return d.marca; }),
+        datasets: [
+          { label: "Precio promedio", data: lista.map(function (d) { return +d.avg.toFixed(2); }),
+            backgroundColor: t[state.product], borderRadius: 4 },
+          { label: "Diferencial vs. mínimo del periodo",
+            data: lista.map(function (d) { return +(d.avg - base).toFixed(2); }),
+            backgroundColor: t.muted, borderRadius: 4 }
+        ]
+      },
+      options: opts
+    });
+  }
+
+  function renderRegiones(rows) {
+    var prod = state.product;
+    var grupos = {};
+    rows.forEach(function (r) {
+      if (!r.region || r[prod] === null) return;
+      (grupos[r.region] = grupos[r.region] || []).push(r);
+    });
+
+    var ordenRegiones = ["Noroeste", "Norte", "Noreste", "Occidente", "Centro", "Golfo", "Sur", "Sureste"];
+    var altos = [], bajos = [], resumen = [];
+
+    ordenRegiones.forEach(function (reg) {
+      var lista = grupos[reg];
+      if (!lista || !lista.length) return;
+      var ord = lista.slice().sort(function (a, b) { return a[prod] - b[prod]; });
+      var precios = ord.map(function (x) { return x[prod]; });
+      var media = avg(precios);
+      resumen.push({ reg: reg, n: ord.length, avg: media, min: precios[0],
+                     max: precios[precios.length - 1] });
+      altos.push({ reg: reg, r: ord[ord.length - 1], avg: media });
+      bajos.push({ reg: reg, r: ord[0], avg: media });
+    });
+
+    var pinta = function (destino, datos, clase) {
+      $(destino).innerHTML = datos.length ? datos.map(function (d) {
+        var dif = d.r[prod] - d.avg;
+        return "<tr><td>" + esc(d.reg) + "</td>" +
+          '<td><div class="cell-station">' + esc(d.r.estacion || d.r.permiso) + "</div>" +
+            '<div class="cell-addr">' + esc(d.r.permiso) + "</div></td>" +
+          "<td>" + esc(d.r.estado || "—") + "</td>" +
+          '<td class="is-num">' + money(d.r[prod]) + "</td>" +
+          '<td class="is-num"><span class="spread ' + clase + '">' +
+            (dif >= 0 ? "+" : "−") + Math.abs(dif).toFixed(2) + "</span></td></tr>";
+      }).join("") : '<tr><td colspan="5" class="na">Sin datos regionales en la selección.</td></tr>';
+    };
+
+    pinta("regAltos", altos, "spread--alto");
+    pinta("regBajos", bajos, "spread--bajo");
+
+    $("regResumen").innerHTML = resumen.length ? resumen.map(function (d) {
+      return "<tr><td>" + esc(d.reg) + "</td>" +
+        '<td class="is-num">' + d.n.toLocaleString("es-MX") + "</td>" +
+        '<td class="is-num">' + money(d.avg) + "</td>" +
+        '<td class="is-num">' + money(d.min) + "</td>" +
+        '<td class="is-num">' + money(d.max) + "</td>" +
+        '<td class="is-num">' + money(d.max - d.min) + "</td></tr>";
+    }).join("") : '<tr><td colspan="6" class="na">La selección no incluye estaciones con región asignada.</td></tr>';
+  }
+
+  /* ---------------------------------------------------------
+     9 ter. Gestor de mis estaciones (modal) y resumen multiestación
+     --------------------------------------------------------- */
+
+  function filaPorPermiso(permiso) {
+    var k = permitKey(permiso);
+    var enc = periodRows().filter(function (r) { return permitKey(r.permiso) === k; });
+    return enc[0] || null;
+  }
+
+  function abrirGestor() {
+    $("mineModal").hidden = false;
+    pintarGestor();
+    setTimeout(function () { $("mineSearch").focus(); }, 30);
+  }
+
+  function cerrarGestor() {
+    $("mineModal").hidden = true;
+    $("mineSearch").value = "";
+  }
+
+  function pintarGestor() {
+    var chips = $("mineChips"), res = $("mineResults"), hint = $("mineModalHint");
+
+    chips.innerHTML = misPermisos.length
+      ? misPermisos.map(function (k) {
+          var r = filaPorPermiso(k);
+          return '<span class="chip-sel"><span>' + esc(r ? (r.estacion || k) : k) +
+                 (r && r.estado ? ' · <span class="chip-sel__sub">' + esc(r.estado) + "</span>" : "") +
+                 '</span><button type="button" data-quitar="' + esc(k) + '" aria-label="Quitar">✕</button></span>';
+        }).join("")
+      : '<p class="modal__vacio">Aún no eliges ninguna. Busca por permiso CRE o razón social.</p>';
+
+    hint.textContent = misPermisos.length + " de " + MIS_MAX + " seleccionadas";
+
+    var q = slug($("mineSearch").value || "");
+    if (!q) {
+      res.innerHTML = '<p class="modal__vacio">Escribe al menos tres caracteres para buscar entre las ' +
+        periodRows().length.toLocaleString("es-MX") + " estaciones del padrón.</p>";
+      return;
+    }
+    var hallados = periodRows().filter(function (r) { return (r._s || "").indexOf(q) > -1; });
+    if (!hallados.length) {
+      res.innerHTML = '<p class="modal__vacio">Sin coincidencias.</p>';
+      return;
+    }
+    res.innerHTML = hallados.slice(0, 40).map(function (r) {
+      var k = permitKey(r.permiso);
+      var puesto = misPermisos.indexOf(k) > -1;
+      return '<button class="res" type="button" data-agregar="' + esc(k) + '"' + (puesto ? " disabled" : "") + '>' +
+        '<span class="res__nombre">' + esc(r.estacion || r.permiso) + "</span>" +
+        '<span class="res__meta">' + esc(r.permiso) + (r.estado ? " · " + esc(r.estado) : "") +
+          (r.regular !== null ? " · Regular " + money(r.regular) : "") + "</span>" +
+        '<span class="res__accion">' + (puesto ? "Ya está" : "Agregar") + "</span></button>";
+    }).join("") +
+      (hallados.length > 40 ? '<p class="modal__vacio">' + hallados.length.toLocaleString("es-MX") +
+        " coincidencias; se muestran las primeras 40.</p>" : "");
+  }
+
+  function agregarMia(k) {
+    if (misPermisos.length >= MIS_MAX || misPermisos.indexOf(k) > -1) return;
+    misPermisos.push(k);
+    guardarMisPermisos();
+    refrescarPropias();
+    pintarGestor();
+    buildControls();
+    render();
+  }
+
+  function quitarMia(k) {
+    var i = misPermisos.indexOf(k);
+    if (i === -1) return;
+    misPermisos.splice(i, 1);
+    guardarMisPermisos();
+    refrescarPropias();
+    pintarGestor();
+    buildControls();
+    render();
+  }
+
+  /* Resumen comparativo: precio, radio, diferencial y lugar de cada estación. */
+  function renderMisEstaciones() {
+    var panel = $("minePanel"), cuerpo = $("mineBody");
+    if (!panel) return;
+    var prod = state.product;
+    var filas = misPermisos.map(filaPorPermiso).filter(Boolean);
+
+    if (!state.onlyMine || !filas.length) { panel.hidden = true; return; }
+    panel.hidden = false;
+
+    $("mineSub").textContent = "Precio de " + PRODUCTS[prod].label +
+      ", diferencial y lugar dentro de su mercado local · " + fmtPeriod(state.period);
+
+    cuerpo.innerHTML = filas.map(function (r) {
+      if (r[prod] === null) {
+        return "<tr><td>" + esc(r.estacion || r.permiso) +
+          '<div class="cell-addr">' + esc(r.permiso) + "</div></td>" +
+          '<td class="is-num na" colspan="6">Sin ' + PRODUCTS[prod].label + " en el periodo</td></tr>";
+      }
+      var uni = universoLocal(r, prod);
+      var ref = uni.ref;
+      var precios = uni.rows.map(function (x) { return x[prod]; });
+      var otros = precios.slice();
+      var i = otros.indexOf(r[prod]);
+      if (i > -1) otros.splice(i, 1);
+      var pos = lugar(r[prod], otros);
+      var dif = ref ? r[prod] - ref.avg : null;
+      var clase = dif === null ? "spread--par" : dif < -0.005 ? "spread--bajo" : dif > 0.005 ? "spread--alto" : "spread--par";
+      var lectura = dif === null ? "—"
+        : dif < -0.005 ? "Por debajo del mercado" : dif > 0.005 ? "Por encima del mercado" : "En el promedio";
+
+      return "<tr>" +
+        "<td><div class=\"cell-station\">" + esc(r.estacion || r.permiso) + "</div>" +
+          '<div class="cell-addr">' + esc(r.permiso) + (r.estado ? " · " + esc(r.estado) : "") + "</div></td>" +
+        '<td class="is-num">' + money(r[prod]) + "</td>" +
+        '<td class="is-num">' + (ref ? money(ref.avg) : "—") + "</td>" +
+        '<td class="is-num"><span class="spread ' + clase + '">' +
+          (dif === null ? "—" : (dif > 0 ? "+" : dif < 0 ? "−" : "") + Math.abs(dif).toFixed(2)) + "</span></td>" +
+        '<td class="is-num">' + pos + " de " + (otros.length + 1) + "</td>" +
+        '<td class="is-num">' + otros.length.toLocaleString("es-MX") + "</td>" +
+        "<td>" + lectura + (ref ? ' <span class="cell-addr">' + esc(ref.etiqueta) + "</span>" : "") + "</td>" +
+      "</tr>";
+    }).join("");
+  }
+
+  /* ---------------------------------------------------------
      10 bis. Simulador táctico de precios
      --------------------------------------------------------- */
 
@@ -1675,9 +1955,14 @@
 
     if (q) {
       var hallados = base.filter(function (r) { return (r._s || "").indexOf(q) > -1; });
+      // Las propias siempre encabezan la lista, aunque la búsqueda traiga más.
+      hallados.sort(function (a, b) { return (b._own ? 1 : 0) - (a._own ? 1 : 0); });
       return { rows: hallados.slice(0, SIM_MAX), total: hallados.length, filtrado: true, propias: false };
     }
-    if (propias.length) return { rows: propias, total: propias.length, filtrado: false, propias: true };
+    if (propias.length) {
+      var resto = base.filter(function (r) { return !r._own; }).slice(0, SIM_MAX - propias.length);
+      return { rows: propias.concat(resto), total: propias.length, filtrado: false, propias: true };
+    }
     return { rows: base.slice(0, SIM_MAX), total: base.length, filtrado: false, propias: false };
   }
 
@@ -1909,9 +2194,10 @@
      --------------------------------------------------------- */
 
   function initEvents() {
-    document.querySelectorAll(".seg").forEach(function (btn) {
+    // Solo los segmentos de producto: el reporte Profeco usa otros con data-prof.
+    document.querySelectorAll(".seg[data-product]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        document.querySelectorAll(".seg").forEach(function (b) {
+        document.querySelectorAll(".seg[data-product]").forEach(function (b) {
           b.classList.remove("is-active"); b.setAttribute("aria-selected", "false");
         });
         btn.classList.add("is-active"); btn.setAttribute("aria-selected", "true");
@@ -1942,6 +2228,35 @@
     });
 
     $("exportBtn").addEventListener("click", exportarCsv);
+
+    $("manageBtn").addEventListener("click", abrirGestor);
+    $("mineModal").addEventListener("click", function (e) {
+      if (e.target.hasAttribute("data-close")) { cerrarGestor(); return; }
+      var add = e.target.closest("[data-agregar]");
+      if (add) { agregarMia(add.getAttribute("data-agregar")); return; }
+      var quita = e.target.closest("[data-quitar]");
+      if (quita) quitarMia(quita.getAttribute("data-quitar"));
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !$("mineModal").hidden) cerrarGestor();
+    });
+
+    var tGestor = null;
+    $("mineSearch").addEventListener("input", function () {
+      clearTimeout(tGestor);
+      tGestor = setTimeout(pintarGestor, CFG.SEARCH_DEBOUNCE_MS === undefined ? 180 : CFG.SEARCH_DEBOUNCE_MS);
+    });
+
+    document.querySelectorAll("[data-prof]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.querySelectorAll("[data-prof]").forEach(function (o) { o.classList.remove("is-active"); });
+        b.classList.add("is-active");
+        profVista = b.getAttribute("data-prof");
+        $("profMarcas").hidden = profVista !== "marcas";
+        $("profRegiones").hidden = profVista !== "regiones";
+        renderProfeco(scoped());
+      });
+    });
 
     $("simStation").addEventListener("change", function () {
       sim.permiso = this.value; sim.precio = null; calcularSimulacion();
@@ -2044,6 +2359,7 @@
     } catch (e) {}
 
     document.body.setAttribute("data-product", state.product);
+    cargarMisPermisos();
     setMine(false);
     initEvents();
     initTooltip();

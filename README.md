@@ -264,6 +264,8 @@ actualiza solo en la siguiente lectura.
 ├── catalogo_estaciones.csv             Permiso CRE → razón social y dirección (175 estaciones)
 ├── xml_a_csv.py                        Convierte el XML oficial a CSV limpio y enriquecido
 ├── historico.csv                       Promedios diarios por ámbito y producto (gráfica de tendencia)
+├── reporte_mercado.csv                 Métricas estilo Profeco: nacional, por marca y por región
+├── entidades_mx.geojson                Topología de las 32 entidades para deducir el estado
 ├── AppsScript.gs                       Ingesta diaria del XML a Google Sheets
 └── .github/
     └── workflows/
@@ -420,18 +422,65 @@ los acentos, y el nombre del archivo recoge producto, periodo y filtros.
 
 ---
 
+### Mis estaciones monitoreadas (hasta 5)
+
+El botón **★ Mis estaciones** del encabezado abre un buscador sobre el padrón completo: eliges hasta
+cinco permisos y la selección se guarda en `localStorage`, así que persiste en ese navegador sin
+tocar código. `MIS_ESTACIONES.permisos` en `config.js` funciona como semilla inicial; a partir de la
+primera selección manda lo guardado.
+
+Con el interruptor **Solo mis estaciones** activo aparece un resumen comparativo: precio, promedio de
+su radio, diferencial, lugar dentro del radio y número de competidores. En el **simulador**, tus
+estaciones encabezan siempre la lista.
+
+### Reporte de mercado estilo "Quién es Quién en los Precios"
+
+Panel con dos vistas:
+
+- **Por marca** — precio promedio de cada marca reconocida y su diferencial contra el precio más bajo
+  del periodo.
+- **Por región** — extremos *precios caros* y *precios justos* de cada una de las 8 regiones de la
+  Política Pública de Almacenamiento Mínimo, más una tabla de promedio, mínimo, máximo y brecha.
+
+Las regiones son las oficiales: Noroeste (BC, BCS, Son, Sin, Nay), Norte (Chih, Dgo), Noreste (Coah,
+NL, Tamps, SLP), Occidente (Zac, Ags, Jal, Gto, Mich, Col), Centro (Qro, Hgo, Tlax, Pue, Mor, EdoMex,
+CDMX), Golfo (Ver, Tab), Sur (Gro, Oax, Chis) y Sureste (Camp, Yuc, Q. Roo).
+
+> **Sobre el margen de ganancia.** Profeco lo publica con estimaciones de la SENER —precio de
+> referencia en TAR, IEPS y estímulos fiscales— que **no vienen en las publicaciones de la CNE**. Con
+> los datos disponibles no es posible reconstruirlo sin inventar supuestos, así que en su lugar se
+> reporta el **diferencial contra el precio más bajo del periodo**, que sí es medible, y se etiqueta
+> como tal en el gráfico, en la tabla y en el CSV. Si consigues la serie de precios de referencia en
+> TAR, el cálculo del margen real se agrega en una tarde.
+
+`xml_a_csv.py --reporte reporte_mercado.csv` escribe las mismas métricas como archivo, un renglón por
+bloque, producto y fecha (~35 KB al año). El panel del tablero las recalcula en vivo desde el padrón.
+
+### El estado de cada estación: punto en polígono
+
+El catálogo de la CNE trae coordenadas pero no entidad. `--geojson entidades_mx.geojson` resuelve el
+estado por punto en polígono sobre la topología de las 32 entidades, y de ahí sale la región.
+
+Resultado sobre el catálogo real: **14,936 de 15,034 asignadas**, de las cuales 133 por cercanía
+—estaciones costeras que caen fuera del polígono simplificado, a las que se asigna la entidad más
+próxima dentro de 20 km— y 98 sin asignar. Cerca de los límites estatales el polígono simplificado
+puede equivocarse; si una estación tuya aparece en el estado vecino, corrígela a mano en
+`catalogo_estaciones.csv`: el valor capturado siempre gana sobre el deducido.
+
 ### Los dos archivos de datos y por qué son dos
 
 | Archivo | Qué contiene | Tamaño por corte | Para qué sirve |
 |---|---|---|---|
-| `fallback.csv` | Padrón completo: una fila por estación | ~750 KB (13,825 filas) | Tabla, KPIs, dispersión, semáforo, simulador |
-| `historico.csv` | Promedios por ámbito y producto | ~3 KB | Gráfica de tendencia y delta de las KPIs |
+| `fallback.csv` | Padrón completo: una fila por estación | ~1.6 MB (13,825 filas) | Tabla, KPIs, dispersión, semáforo, simulador, panel Profeco |
+| `historico.csv` | Promedios por ámbito y producto | ~5 KB | Gráfica de tendencia y delta de las KPIs |
+| `reporte_mercado.csv` | Métricas por marca y región | ~2 KB | Registro semanal del reporte |
 
-El flujo diario acumula en los dos, pero con ventanas distintas: `--conservar 3` para el padrón y
-`--historico-conservar 120` para los promedios. La razón es aritmética: guardar 60 cortes completos
-serían unos 45 MB que el navegador tendría que descargar y recorrer en cada carga, mientras que 120
-cortes de promedios pesan menos de 400 KB. La tendencia solo necesita promedios, así que ahí es
-donde vive la memoria larga del tablero.
+El flujo acumula en los tres con ventanas distintas: `--conservar 7` para el padrón (una semana móvil)
+y `--historico-conservar 120` para los promedios. **No es posible guardar 60 cortes completos**: con
+la razón social incluida, cada corte pesa 1.6 MB, así que 60 serían unos 95 MB que el navegador
+tendría que descargar y recorrer en cada carga. La memoria larga vive en `historico.csv`, que con 120
+cortes no llega a 600 KB, y la gráfica de tendencia se alimenta de ahí en cuanto tiene más historia
+que el padrón.
 
 Si prefieres la serie completa por estación, sube `--conservar` y apunta `FALLBACK_CSV` al archivo
 acumulado; el tablero usa los periodos del padrón cuando tiene más historia que `historico.csv`.

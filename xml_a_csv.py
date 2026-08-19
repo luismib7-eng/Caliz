@@ -404,6 +404,135 @@ def escribir_historico(filas, ruta, fecha, conservar):
 COLUMNAS_CATALOGO = ["Permiso CRE", "Marca", "Estacion", "Direccion",
                      "Municipio", "Estado", "Region", "Lat", "Lon"]
 
+# Las 8 regiones de la Política Pública de Almacenamiento Mínimo de Petrolíferos,
+# tal como las usa Profeco en "Quién es Quién en los Precios".
+REGIONES = {
+    "Noroeste": ["Baja California", "Baja California Sur", "Sonora", "Sinaloa", "Nayarit"],
+    "Norte": ["Chihuahua", "Durango"],
+    "Noreste": ["Coahuila", "Coahuila de Zaragoza", "Nuevo León", "Tamaulipas", "San Luis Potosí"],
+    "Occidente": ["Zacatecas", "Aguascalientes", "Jalisco", "Guanajuato", "Michoacán",
+                  "Michoacán de Ocampo", "Colima"],
+    "Centro": ["Querétaro", "Querétaro de Arteaga", "Hidalgo", "Tlaxcala", "Puebla", "Morelos",
+               "México", "Estado de México", "Ciudad de México", "Distrito Federal"],
+    "Golfo": ["Veracruz", "Veracruz de Ignacio de la Llave", "Tabasco"],
+    "Sur": ["Guerrero", "Oaxaca", "Chiapas"],
+    "Sureste": ["Campeche", "Yucatán", "Quintana Roo"],
+}
+
+ESTADO_A_REGION = {}
+for _reg, _edos in REGIONES.items():
+    for _e in _edos:
+        ESTADO_A_REGION[_e.lower()] = _reg
+
+
+def region_de(estado):
+    return ESTADO_A_REGION.get((estado or "").strip().lower(), "")
+
+
+# ---------------------------------------------------------------------------
+#  Asignación de estado por coordenadas (punto en polígono)
+# ---------------------------------------------------------------------------
+
+def cargar_estados_geojson(ruta):
+    """Devuelve [(estado, anillos, bbox)] a partir de un GeoJSON de entidades."""
+    import json
+    with io.open(ruta, encoding="utf-8") as fh:
+        gj = json.load(fh)
+    salida = []
+    for feat in gj.get("features", []):
+        props = feat.get("properties", {})
+        nombre = ""
+        for clave in ("ESTADO", "estado", "NOMBRE", "name", "NOM_ENT", "NAME_1"):
+            if props.get(clave):
+                nombre = str(props[clave]).strip()
+                break
+        geo = feat.get("geometry") or {}
+        coords = geo.get("coordinates") or []
+        if geo.get("type") == "MultiPolygon":
+            anillos = [poly[0] for poly in coords if poly]
+        elif geo.get("type") == "Polygon":
+            anillos = [coords[0]] if coords else []
+        else:
+            continue
+        if not nombre or not anillos:
+            continue
+        xs = [p[0] for a in anillos for p in a]
+        ys = [p[1] for a in anillos for p in a]
+        salida.append((nombre, anillos, (min(xs), min(ys), max(xs), max(ys))))
+    return salida
+
+
+def _dentro(x, y, anillo):
+    dentro, n = False, len(anillo)
+    j = n - 1
+    for i in range(n):
+        xi, yi = anillo[i][0], anillo[i][1]
+        xj, yj = anillo[j][0], anillo[j][1]
+        if (yi > y) != (yj > y):
+            corte = (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi
+            if x < corte:
+                dentro = not dentro
+        j = i
+    return dentro
+
+
+def estado_por_coordenadas(x, y, entidades, tolerancia=0.2):
+    """
+    Entidad que contiene el punto. Si ninguna lo contiene —típico en estaciones
+    costeras, donde el polígono simplificado deja fuera la línea de costa— se
+    devuelve la más cercana dentro de `tolerancia` grados (~20 km).
+    """
+    for nombre, anillos, bb in entidades:
+        if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
+            continue
+        for anillo in anillos:
+            if _dentro(x, y, anillo):
+                return nombre, False
+    mejor, mejor_d = "", tolerancia ** 2
+    for nombre, anillos, bb in entidades:
+        if x < bb[0] - tolerancia or x > bb[2] + tolerancia:
+            continue
+        if y < bb[1] - tolerancia or y > bb[3] + tolerancia:
+            continue
+        for anillo in anillos:
+            for px, py in anillo:
+                d = (px - x) ** 2 + (py - y) ** 2
+                if d < mejor_d:
+                    mejor_d, mejor = d, nombre
+    return (mejor, True) if mejor else ("", False)
+
+
+def enriquecer_geografia(catalogo, ruta_geojson):
+    """Rellena Estado (por coordenadas) y Region (por tabla oficial) donde falten."""
+    entidades = cargar_estados_geojson(ruta_geojson) if ruta_geojson else []
+    st = {"por_coordenadas": 0, "aproximados": 0, "sin_asignar": 0, "region": 0}
+    vistos = set()
+    for clave, reg in catalogo.items():
+        if id(reg) in vistos:
+            continue
+        vistos.add(id(reg))
+        if not reg.get("Estado") and entidades:
+            try:
+                x = float(reg.get("Lon") or "")
+                y = float(reg.get("Lat") or "")
+            except ValueError:
+                st["sin_asignar"] += 1
+                continue
+            nombre, aprox = estado_por_coordenadas(x, y, entidades)
+            if nombre:
+                reg["Estado"] = nombre
+                st["por_coordenadas"] += 1
+                if aprox:
+                    st["aproximados"] += 1
+            else:
+                st["sin_asignar"] += 1
+        if reg.get("Estado") and not reg.get("Region"):
+            r = region_de(reg["Estado"])
+            if r:
+                reg["Region"] = r
+                st["region"] += 1
+    return st
+
 
 def exportar_catalogo(catalogo, ruta):
     """
@@ -447,6 +576,90 @@ def exportar_catalogo(catalogo, ruta):
             "municipio": con_municipio, "coords": con_coords}
 
 
+COLUMNAS_REPORTE = ["Fecha", "Producto", "Bloque", "Clave", "Estaciones",
+                    "Promedio", "Minimo", "Maximo", "Diferencial_vs_minimo",
+                    "Estacion_extremo", "Permiso_extremo"]
+
+
+def generar_reporte(filas, ruta, fecha, marcas):
+    """
+    Métricas homólogas a "Quién es Quién en los Precios" con los datos que sí
+    publican la CNE y el SAT:
+
+      · nacional  promedio, mínimo y máximo por producto
+      · marca     promedio por marca reconocida y su diferencial
+      · region    promedio y extremos en las 8 regiones oficiales
+
+    Nota: Profeco publica el margen de ganancia con estimaciones de la SENER
+    (precio de referencia en TAR, IEPS y estímulos) que no vienen en estas
+    publicaciones. Aquí se reporta el DIFERENCIAL contra el precio más bajo del
+    periodo, que sí es medible, y se etiqueta como tal.
+    """
+    if not ruta or not fecha:
+        return None
+
+    marcas_norm = [(m, " " + " ".join(m.lower().split()) + " ") for m in (marcas or [])]
+
+    def marca_de(fila):
+        if fila.get("Marca"):
+            return fila["Marca"]
+        campo = " " + " ".join((fila.get("Estacion") or "").lower().split()) + " "
+        for nombre, frase in marcas_norm:
+            if frase in campo:
+                return nombre
+        return ""
+
+    salida = []
+    for prod in ("Regular", "Premium", "Diesel"):
+        datos = [(float(f[prod]), f) for f in filas if f[prod]]
+        if not datos:
+            continue
+        datos.sort(key=lambda d: d[0])
+        precios = [d[0] for d in datos]
+        base = precios[0]
+        promedio = sum(precios) / len(precios)
+
+        salida.append({"Fecha": fecha, "Producto": prod, "Bloque": "nacional", "Clave": "MX",
+                       "Estaciones": len(precios), "Promedio": "%.4f" % promedio,
+                       "Minimo": "%.2f" % base, "Maximo": "%.2f" % precios[-1],
+                       "Diferencial_vs_minimo": "%.2f" % (promedio - base),
+                       "Estacion_extremo": datos[-1][1].get("Estacion", ""),
+                       "Permiso_extremo": datos[-1][1].get("Permiso CRE", "")})
+
+        por_marca, por_region = {}, {}
+        for precio, f in datos:
+            m = marca_de(f)
+            if m:
+                por_marca.setdefault(m, []).append((precio, f))
+            reg = f.get("Region") or ""
+            if reg and reg != SIN_DATO:
+                por_region.setdefault(reg, []).append((precio, f))
+
+        for bloque, grupos in (("marca", por_marca), ("region", por_region)):
+            for clave in sorted(grupos):
+                g = grupos[clave]
+                pr = [x[0] for x in g]
+                media = sum(pr) / len(pr)
+                salida.append({"Fecha": fecha, "Producto": prod, "Bloque": bloque, "Clave": clave,
+                               "Estaciones": len(pr), "Promedio": "%.4f" % media,
+                               "Minimo": "%.2f" % pr[0], "Maximo": "%.2f" % pr[-1],
+                               "Diferencial_vs_minimo": "%.2f" % (media - base),
+                               "Estacion_extremo": g[-1][1].get("Estacion", ""),
+                               "Permiso_extremo": g[-1][1].get("Permiso CRE", "")})
+
+    previas = []
+    if os.path.exists(ruta) and os.path.getsize(ruta) > 0:
+        with io.open(ruta, encoding="utf-8-sig", newline="") as fh:
+            previas = [f for f in csv.DictReader(fh) if (f.get("Fecha") or "").strip() != fecha]
+
+    with io.open(ruta, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLUMNAS_REPORTE, lineterminator="\n", extrasaction="ignore")
+        w.writeheader()
+        for f in previas + salida:
+            w.writerow(dict((c, f.get(c, "")) for c in COLUMNAS_REPORTE))
+    return {"filas": len(salida), "total": len(previas) + len(salida)}
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Convierte el XML oficial de precios de la CNE al CSV del tablero.")
@@ -465,6 +678,12 @@ def main():
                     help="Cortes diarios a conservar en el histórico de promedios (por omisión 120)")
     ap.add_argument("--exportar-catalogo", default="",
                     help="Escribe el catálogo leído a este CSV (útil para convertir el XML de estaciones de la CNE)")
+    ap.add_argument("--reporte", default="",
+                    help="CSV con las métricas estilo Profeco (nacional, por marca y por región)")
+    ap.add_argument("--marcas", default="BP,TOTALENERGIES,REPSOL,SHELL,CHEVRON,EXXONMOBIL,GULF,G500,OXXO GAS,ARCO NORTE",
+                    help="Marcas a reconocer en el reporte, separadas por coma")
+    ap.add_argument("--geojson", default="",
+                    help="GeoJSON de las 32 entidades para deducir Estado de las coordenadas del catálogo")
     ap.add_argument("--min", type=float, default=15.0, help="Precio mínimo válido (por omisión 15.00)")
     ap.add_argument("--max", type=float, default=45.0, help="Precio máximo válido (por omisión 45.00)")
     args = ap.parse_args()
@@ -472,6 +691,11 @@ def main():
     catalogo = leer_catalogo(args.catalogo if os.path.exists(args.catalogo) else "")
     if args.catalogo and not catalogo:
         print("Aviso: no se cargó catálogo; las estaciones quedarán identificadas por su permiso.")
+
+    if args.geojson:
+        g = enriquecer_geografia(catalogo, args.geojson)
+        print("Estados por coordenadas:  %d (%d aproximados por cercanía) · %d sin asignar · %d con región"
+              % (g["por_coordenadas"], g["aproximados"], g["sin_asignar"], g["region"]))
 
     if args.exportar_catalogo:
         ce = exportar_catalogo(catalogo, args.exportar_catalogo)
@@ -495,6 +719,13 @@ def main():
     if hist:
         print("Histórico de promedios:   %s (%s · %d periodo(s))" %
               (args.historico, hist["accion"], hist["periodos"]))
+
+    if args.reporte:
+        rep_ = generar_reporte(filas, args.reporte, st["fecha"],
+                               [m.strip() for m in args.marcas.split(",") if m.strip()])
+        if rep_:
+            print("Reporte de mercado:       %s (%d renglones del periodo · %d en total)"
+                  % (args.reporte, rep_["filas"], rep_["total"]))
 
 
 if __name__ == "__main__":

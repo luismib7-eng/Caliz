@@ -66,6 +66,10 @@
       <select id="municipioSelect" class="input"><option value="">Todos</option></select>
     </label>
 
+    <button class="btn" id="manageBtn" type="button">
+      <span class="btn__icon" aria-hidden="true">★</span> Mis estaciones
+    </button>
+
     <button class="switch-brand" id="mineToggle" type="button" aria-pressed="false">
       <span class="switch-brand__track" aria-hidden="true"><span class="switch-brand__knob"></span></span>
       <span class="switch-brand__label">Solo mis estaciones</span>
@@ -136,6 +140,30 @@
         <span class="chip chip--bench" id="railBenchChip">Referencia nacional</span>
         <span class="chip chip--spread" id="railSpread">—</span>
       </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ RESUMEN DE MIS ESTACIONES ══════════════ -->
+  <section class="panel" id="minePanel" hidden aria-label="Resumen de mis estaciones">
+    <div class="panel__head">
+      <h2 class="panel__title">Mis estaciones monitoreadas</h2>
+      <p class="panel__sub" id="mineSub">Precio, diferencial y lugar dentro de su radio de competencia.</p>
+    </div>
+    <div class="tablebox">
+      <table class="table" id="mineTable">
+        <thead>
+          <tr>
+            <th>Estación</th>
+            <th class="is-num">Precio</th>
+            <th class="is-num">Promedio radio</th>
+            <th class="is-num">Diferencial</th>
+            <th class="is-num">Lugar</th>
+            <th class="is-num">Competidores</th>
+            <th>Posición</th>
+          </tr>
+        </thead>
+        <tbody id="mineBody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -220,6 +248,47 @@
     <div class="chartbox chartbox--short"><canvas id="chartHist"></canvas><p class="empty" id="emptyHist" hidden></p></div>
   </section>
 
+  <!-- ══════════════ REPORTE SEMANAL ESTILO PROFECO ══════════════ -->
+  <section class="panel" aria-label="Reporte estilo Profeco">
+    <div class="panel__head panel__head--row">
+      <div>
+        <h2 class="panel__title">Reporte de mercado · estilo Quién es Quién</h2>
+        <p class="panel__sub" id="profecoSub">Precios por marca y extremos en las 8 regiones de la Política de Almacenamiento.</p>
+      </div>
+      <div class="segmented segmented--sm" role="tablist" aria-label="Vista del reporte">
+        <button class="seg seg--regular is-active" role="tab" data-prof="marcas">Por marca</button>
+        <button class="seg seg--regular" role="tab" data-prof="regiones">Por región</button>
+      </div>
+    </div>
+
+    <div id="profMarcas">
+      <div class="chartbox"><canvas id="chartMarcas"></canvas><p class="empty" id="emptyMarcas" hidden></p></div>
+    </div>
+
+    <div id="profRegiones" hidden>
+      <div class="prof__grid">
+        <div>
+          <h3 class="prof__titulo prof__titulo--alto">Precios caros · más altos por región</h3>
+          <div class="tablebox"><table class="table"><thead><tr>
+            <th>Región</th><th>Estación</th><th>Estado</th><th class="is-num">Precio</th><th class="is-num">Δ región</th>
+          </tr></thead><tbody id="regAltos"></tbody></table></div>
+        </div>
+        <div>
+          <h3 class="prof__titulo prof__titulo--bajo">Precios justos · más bajos por región</h3>
+          <div class="tablebox"><table class="table"><thead><tr>
+            <th>Región</th><th>Estación</th><th>Estado</th><th class="is-num">Precio</th><th class="is-num">Δ región</th>
+          </tr></thead><tbody id="regBajos"></tbody></table></div>
+        </div>
+      </div>
+      <div class="tablebox prof__resumen">
+        <table class="table"><thead><tr>
+          <th>Región</th><th class="is-num">Estaciones</th><th class="is-num">Promedio</th>
+          <th class="is-num">Mínimo</th><th class="is-num">Máximo</th><th class="is-num">Brecha</th>
+        </tr></thead><tbody id="regResumen"></tbody></table>
+      </div>
+    </div>
+  </section>
+
   <!-- ══════════════ EXPLORADOR DE ESTACIONES ══════════════ -->
   <section class="panel">
     <div class="panel__head panel__head--row">
@@ -287,6 +356,33 @@
     </p>
   </div>
 </footer>
+
+<!-- ══════════════ GESTOR DE MIS ESTACIONES ══════════════ -->
+<div class="modal" id="mineModal" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__box" role="dialog" aria-modal="true" aria-labelledby="mineModalTitle">
+    <div class="modal__head">
+      <h2 class="panel__title" id="mineModalTitle">Mis estaciones monitoreadas</h2>
+      <button class="btn btn--ghost" type="button" data-close aria-label="Cerrar">✕</button>
+    </div>
+    <p class="modal__sub">Hasta 5 permisos CRE. La selección se guarda en este navegador.</p>
+
+    <div class="modal__sel" id="mineChips"></div>
+
+    <label class="field">
+      <span class="field__label">Buscar en el catálogo</span>
+      <input id="mineSearch" class="input" type="search"
+             placeholder="Permiso CRE, razón social o estado" aria-label="Buscar estación en el catálogo">
+    </label>
+
+    <div class="modal__results" id="mineResults"></div>
+
+    <div class="modal__foot">
+      <span class="modal__hint" id="mineModalHint"></span>
+      <button class="btn" type="button" data-close>Listo</button>
+    </div>
+  </div>
+</div>
 
 <div class="tooltip" id="tooltip" role="status" hidden></div>
 
