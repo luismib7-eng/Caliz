@@ -1640,8 +1640,15 @@
     renderTable(rows);
     renderCompetencia(rows);
     renderMisEstaciones();
+    renderBriefing();
+    if (mapaListo) {
+      if (!mapaEncuadrado) { encuadrarMapa(rows); mapaEncuadrado = true; }
+      pintarMapa(rows);
+    }
     renderProfeco(rows);
     renderSimulador();
+    resumenFiltros();
+    setTimeout(marcarScrollables, 0);
     $("footerUpdated").textContent = state.updatedAt
       ? "Actualizado " + fmtDateTime(state.updatedAt) + " · origen: " + state.origin
       : "";
@@ -1823,6 +1830,277 @@
   }
 
   /* ---------------------------------------------------------
+     9 sexies. Mapa táctico de competencia (Leaflet, renderizador canvas)
+
+     El padrón nacional tiene ~14,000 puntos: dibujarlos todos en SVG satura
+     cualquier teléfono. Se usa preferCanvas y solo se pintan las estaciones
+     dentro del encuadre visible, con tope configurable.
+     --------------------------------------------------------- */
+
+  var mapaEncuadrado = false;
+  var mapa = null, capaCompetencia = null, capaPropias = null, capaRadios = null;
+  var mapaListo = false, mapaPintando = false;
+
+  function iniciarMapa() {
+    if (mapa || typeof L === "undefined" || !$("mapView")) return;
+
+    mapa = L.map("mapView", {
+      preferCanvas: true,
+      zoomControl: true,
+      attributionControl: true,
+      center: [23.6, -102.5],
+      zoom: 5,
+      worldCopyJump: false
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: '&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(mapa);
+
+    capaRadios = L.layerGroup().addTo(mapa);
+    capaCompetencia = L.layerGroup().addTo(mapa);
+    capaPropias = L.layerGroup().addTo(mapa);
+
+    var t = null;
+    mapa.on("moveend zoomend", function () {
+      clearTimeout(t);
+      t = setTimeout(function () {
+        /* Abrir un popup desplaza el mapa (autoPan) y eso dispara moveend:
+           repintar en ese momento borraba el marcador y, con él, el popup
+           recién abierto. Mientras haya uno abierto no se repinta. */
+        if (mapa._popup && mapa._popup.isOpen()) return;
+        pintarMapa(scoped());
+      }, 160);
+    });
+
+    mapa.on("popupclose", function () {
+      clearTimeout(t);
+      t = setTimeout(function () { pintarMapa(scoped()); }, 200);
+    });
+
+    mapaListo = true;
+  }
+
+  function colorSemaforo(r, prod) {
+    var sp = spreadDe(r, prod);
+    if (!sp) return cssVar("--muted");
+    if (sp.valor < -0.005) return cssVar("--regular");
+    if (sp.valor > 0.005) return cssVar("--premium");
+    return cssVar("--muted");
+  }
+
+  function popupEstacion(r, prod) {
+    var sp = spreadDe(r, prod);
+    var linea = function (etiqueta, valor) {
+      return '<div class="pop__fila"><span>' + etiqueta + "</span><b>" + valor + "</b></div>";
+    };
+    return '<div class="pop">' +
+      '<p class="pop__nombre">' + esc(r.estacion || r.permiso) + (r._own ? " ★" : "") + "</p>" +
+      '<p class="pop__meta">' + esc(r.permiso) +
+        (r.marca || r._marca ? " · " + esc(r.marca || r._marca) : "") +
+        ([r.municipio, r.estado].filter(Boolean).length ? "<br>" + esc([r.municipio, r.estado].filter(Boolean).join(", ")) : "") +
+      "</p>" +
+      linea("Regular", r.regular === null ? "N/D" : money(r.regular)) +
+      linea("Premium", r.premium === null ? "N/D" : money(r.premium)) +
+      linea("Diésel", r.diesel === null ? "N/D" : money(r.diesel)) +
+      (sp ? '<p class="pop__spread ' +
+              (sp.valor < -0.005 ? "spread--bajo" : sp.valor > 0.005 ? "spread--alto" : "spread--par") + '">' +
+              (sp.valor >= 0 ? "+" : "−") + Math.abs(sp.valor).toFixed(2) + " vs. " + esc(sp.ref.etiqueta) +
+              " · " + sp.ref.n.toLocaleString("es-MX") + " estaciones</p>"
+            : "") +
+    "</div>";
+  }
+
+  function pintarMapa(rows) {
+    if (!mapaListo || mapaPintando) return;
+    mapaPintando = true;
+
+    var prod = state.product;
+    var tope = Number(CFG.MAPA_MAX_PUNTOS || 2500);
+    var limites = mapa.getBounds();
+
+    capaCompetencia.clearLayers();
+    capaPropias.clearLayers();
+    capaRadios.clearLayers();
+
+    var conCoords = rows.filter(function (r) { return r.lat !== null && r.lon !== null; });
+    var propias = conCoords.filter(function (r) { return r._own; });
+    var visibles = conCoords.filter(function (r) { return limites.contains([r.lat, r.lon]); });
+    var recortado = visibles.length > tope;
+    if (recortado) visibles = visibles.slice(0, tope);
+
+    var lienzo = L.canvas({ padding: 0.3 });
+
+    visibles.forEach(function (r) {
+      if (r._own) return;
+      L.circleMarker([r.lat, r.lon], {
+        renderer: lienzo,
+        radius: 4.5,
+        weight: 1,
+        color: colorSemaforo(r, prod),
+        fillColor: colorSemaforo(r, prod),
+        fillOpacity: .55,
+        opacity: .9
+      }).bindPopup(popupEstacion(r, prod), { className: "pop__wrap" }).addTo(capaCompetencia);
+    });
+
+    var radio = Number(CFG.RADIO_KM || 0);
+    propias.forEach(function (r) {
+      if (radio > 0) {
+        L.circle([r.lat, r.lon], {
+          radius: radio * 1000,
+          color: cssVar("--brand"),
+          weight: 1.5,
+          fillColor: cssVar("--brand"),
+          fillOpacity: .07,
+          dashArray: "5 5"
+        }).addTo(capaRadios);
+      }
+      L.marker([r.lat, r.lon], {
+        interactive: true,
+        riseOnHover: true,
+        icon: L.divIcon({
+          className: "marca-propia",
+          html: '<span class="marca-propia__halo"></span><span class="marca-propia__punto">★</span>',
+          iconSize: [26, 26],
+          iconAnchor: [13, 13]
+        }),
+        zIndexOffset: 1000,
+        title: r.estacion || r.permiso
+      }).bindPopup(popupEstacion(r, prod), { className: "pop__wrap" }).addTo(capaPropias);
+    });
+
+    $("mapSub").textContent = "Semáforo de " + PRODUCTS[prod].label +
+      " · " + visibles.length.toLocaleString("es-MX") + " estaciones en pantalla" +
+      (propias.length ? " · " + propias.length + " propia(s) con radio de " + radio + " km" : "");
+
+    $("mapNota").textContent = recortado
+      ? "Hay más estaciones de las que caben dibujadas (tope de " + tope.toLocaleString("es-MX") +
+        "): acerca el mapa o filtra por estado o municipio para verlas todas."
+      : conCoords.length && !visibles.length
+        ? "Ninguna estación de la selección cae en el encuadre. Usa el botón de encuadre o aleja el mapa."
+        : "";
+
+    mapaPintando = false;
+  }
+
+  /* Encuadra las estaciones propias, o la selección, la primera vez. */
+  function encuadrarMapa(rows) {
+    if (!mapaListo) return;
+    var propias = rows.filter(function (r) { return r._own && r.lat !== null; });
+    var base = propias.length ? propias : rows.filter(function (r) { return r.lat !== null; });
+    if (!base.length) return;
+    if (base.length > 4000) base = base.slice(0, 4000);
+    var puntos = base.map(function (r) { return [r.lat, r.lon]; });
+    try {
+      mapa.fitBounds(L.latLngBounds(puntos).pad(propias.length ? 0.6 : 0.05),
+                     { animate: false, maxZoom: propias.length ? 12 : 11 });
+    } catch (e) { /* límites inválidos */ }
+  }
+
+  /* ---------------------------------------------------------
+     9 quinquies. Briefing ejecutivo
+     Diagnóstico y recomendación en lenguaje natural para las estaciones
+     propias, medidas contra su propio radio de competencia.
+     --------------------------------------------------------- */
+
+  function cambiosEnRadio(rows, prod) {
+    /* Cuántos competidores movieron precio contra el corte anterior. */
+    var ps = periods();
+    if (ps.length < 2 || !state.period) return null;
+    var i = ps.indexOf(state.period);
+    var prev = ps[i + 1];
+    if (!prev) return null;
+    var previos = {};
+    state.rows.forEach(function (r) {
+      if (r.fecha === prev && r[prod] !== null) previos[permitKey(r.permiso)] = r[prod];
+    });
+    var movidos = 0, comparables = 0;
+    rows.forEach(function (r) {
+      var antes = previos[permitKey(r.permiso)];
+      if (antes === undefined) return;
+      comparables++;
+      if (Math.abs(antes - r[prod]) > 0.005) movidos++;
+    });
+    return { movidos: movidos, comparables: comparables };
+  }
+
+  function renderBriefing() {
+    var caja = $("briefingBody");
+    if (!caja) return;
+    var prod = state.product;
+    var mias = misPermisos.map(filaPorPermiso).filter(Boolean);
+
+    $("briefingSub").textContent = PRODUCTS[prod].label + " · " +
+      (state.period ? fmtPeriod(state.period) : "todos los periodos");
+
+    if (!mias.length) {
+      caja.innerHTML = '<p class="briefing__vacio">Elige tus estaciones con el botón <strong>★ Mis estaciones</strong> ' +
+        "y aquí aparecerá cada mañana tu postura frente a la competencia del radio: cuántos vecinos movieron " +
+        "precio, en qué lugar quedaste y qué ajuste te subiría de posición.</p>";
+      return;
+    }
+
+    caja.innerHTML = mias.map(function (r) {
+      if (r[prod] === null) {
+        return '<div class="briefing__item"><p class="briefing__linea">' +
+          esc(r.estacion || r.permiso) + " no reporta " + PRODUCTS[prod].label + " en este corte.</p></div>";
+      }
+
+      var uni = universoLocal(r, prod);
+      var ref = uni.ref;
+      var otros = uni.rows.filter(function (x) { return permitKey(x.permiso) !== permitKey(r.permiso); });
+      var precios = otros.map(function (x) { return x[prod]; }).sort(function (a, b) { return a - b; });
+      var pos = lugar(r[prod], precios);
+      var total = precios.length + 1;
+      var dif = ref ? r[prod] - ref.avg : 0;
+      var zona = !ref ? "tu zona"
+               : ref.alcance === "radio" ? (r.municipio ? r.municipio + ", " + ref.etiqueta : ref.etiqueta)
+               : ref.alcance === "nacional" ? "el país" : ref.etiqueta;
+
+      var cambios = cambiosEnRadio(otros, prod);
+      var frase1 = "Hoy en " + esc(zona) + ", " +
+        (cambios === null
+          ? "con " + precios.length.toLocaleString("es-MX") + " competidores en tu radio"
+          : cambios.movidos + " de " + cambios.comparables.toLocaleString("es-MX") + " competidores modificaron precio") + ".";
+
+      var frase2 = "<strong>" + esc(r.estacion || r.permiso) + "</strong> está " +
+        (Math.abs(dif) < 0.005 ? "en el promedio del radio"
+          : "$" + Math.abs(dif).toFixed(2) + (dif > 0 ? " por encima" : " por debajo") + " del promedio del radio") +
+        " (lugar " + pos + " de " + total.toLocaleString("es-MX") + ").";
+
+      /* Recomendación: el ajuste mínimo para entrar al top 3 sin regalar
+         centavos de más. Si ya estás ahí, se sugiere sostener. */
+      var frase3, tono;
+      if (pos <= 3) {
+        var margenHolgura = precios.length >= 3 ? precios[2] - r[prod] : null;
+        frase3 = "Ya estás en el top 3. " + (margenHolgura !== null && margenHolgura > 0.01
+          ? "Tienes holgura de $" + margenHolgura.toFixed(2) + " por litro antes de salir del tercer lugar: " +
+            "podrías recuperar margen sin perder posición."
+          : "Sostén el precio: cualquier alza te saca del bloque más económico.");
+        tono = "bajo";
+      } else {
+        var objetivo = precios[2];                    // precio del tercero más barato
+        var ajuste = r[prod] - (objetivo - 0.01);
+        frase3 = "Para entrar al top 3 necesitas bajar $" + Math.max(0.01, ajuste).toFixed(2) +
+                 " por litro (quedarías en " + money(Math.min(r[prod], objetivo - 0.01)) + ").";
+        if (sim.volumen) {
+          frase3 += " Con " + sim.volumen.toLocaleString("es-MX") + " L/día son " +
+                    pesos(-Math.max(0.01, ajuste) * sim.volumen) + " de ingreso diario.";
+        }
+        tono = dif > 0 ? "alto" : "";
+      }
+
+      return '<div class="briefing__item' + (tono ? " briefing__item--" + tono : "") + '">' +
+        '<p class="briefing__linea">' + frase1 + "</p>" +
+        '<p class="briefing__linea">' + frase2 + "</p>" +
+        '<p class="briefing__linea briefing__linea--accion">' + frase3 + "</p>" +
+      "</div>";
+    }).join("");
+  }
+
+  /* ---------------------------------------------------------
      9 ter. Gestor de mis estaciones (modal) y resumen multiestación
      --------------------------------------------------------- */
 
@@ -1885,6 +2163,7 @@
     if (misPermisos.length >= MIS_MAX || misPermisos.indexOf(k) > -1) return;
     misPermisos.push(k);
     guardarMisPermisos();
+    mapaEncuadrado = false;
     refrescarPropias();
     pintarGestor();
     buildControls();
@@ -1953,7 +2232,33 @@
      10 bis. Simulador táctico de precios
      --------------------------------------------------------- */
 
-  var sim = { permiso: "", precio: null, busqueda: "" };
+  var SIM_FIN_KEY = "combustibles:simulador-financiero";
+  var sim = { permiso: "", precio: null, busqueda: "", volumen: null, costo: null, extra: null };
+
+  function cargarFinanzas() {
+    try {
+      var raw = localStorage.getItem(SIM_FIN_KEY);
+      if (!raw) return;
+      var d = JSON.parse(raw) || {};
+      sim.volumen = isFinite(d.volumen) ? d.volumen : null;
+      sim.costo = isFinite(d.costo) ? d.costo : null;
+      sim.extra = isFinite(d.extra) ? d.extra : null;
+    } catch (e) { /* almacenamiento no disponible */ }
+  }
+
+  function guardarFinanzas() {
+    try {
+      localStorage.setItem(SIM_FIN_KEY, JSON.stringify({
+        volumen: sim.volumen, costo: sim.costo, extra: sim.extra
+      }));
+    } catch (e) {}
+  }
+
+  function pesos(n) {
+    if (n === null || !isFinite(n)) return "—";
+    var signo = n < 0 ? "−" : "";
+    return signo + "$" + Math.abs(n).toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }
 
   /* Universo con el que compite la estación: su municipio si hay referencia,
      si no su estado y en último caso el país. */
@@ -2120,6 +2425,7 @@
                               " por litro vendido frente al precio de hoy",
                 delta > 0 ? "alto" : delta < 0 ? "bajo" : "") +
       "</div>" +
+      bloqueFinanciero(actual, sim.precio, delta) +
       (uni.ref && uni.ref.alcance !== "municipio" && uni.ref.alcance !== "radio"
         ? '<p class="sim__nota">Esta estación no tiene competidores identificados en su municipio, así que ' +
           "el ranking se calcula contra " +
@@ -2129,6 +2435,69 @@
       (avisoAjeno ? '<p class="sim__nota">Esta estación no está declarada como propia (las tuyas aparecen con ★). ' +
         'Captura tus permisos CRE en <code>MIS_ESTACIONES</code> dentro de <code>config.js</code> para que el ' +
         'simulador abra directamente con ellas.</p>' : "");
+
+    /* Impacto en caja. Sin costo por litro no hay utilidad que calcular: se
+       reporta el efecto sobre el ingreso y se dice que es ingreso, no margen. */
+    function bloqueFinanciero(precioActual, precioSim, delta) {
+      var v = sim.volumen;
+      if (!v || v <= 0) {
+        return '<p class="sim__nota">Captura tu <strong>venta diaria en litros</strong> para ver el impacto ' +
+               "en caja además del movimiento por litro.</p>";
+      }
+      var extra = sim.extra || 0;
+      var costo = sim.costo;
+      var volNuevo = v + extra;
+
+      var ingresoHoy = precioActual * v;
+      var ingresoSim = precioSim * volNuevo;
+      var difIngreso = ingresoSim - ingresoHoy;
+
+      var utilidadHoy = costo !== null ? (precioActual - costo) * v : null;
+      var utilidadSim = costo !== null ? (precioSim - costo) * volNuevo : null;
+      var difUtilidad = costo !== null ? utilidadSim - utilidadHoy : null;
+
+      var equilibrio = null;
+      if (costo !== null && delta < 0 && (precioSim - costo) > 0) {
+        // Litros extra necesarios para no perder utilidad al bajar el precio.
+        equilibrio = Math.ceil(utilidadHoy / (precioSim - costo)) - v;
+      }
+
+      var html = '<div class="fin">' +
+        '<p class="fin__titulo">Impacto diario estimado</p>' +
+        '<div class="sim__grid">' +
+          tarjeta("Δ por litro", (delta >= 0 ? "+" : "−") + Math.abs(delta).toFixed(2) + " $/L",
+                  v.toLocaleString("es-MX") + " L/día" + (extra ? " + " + extra.toLocaleString("es-MX") + " L esperados" : ""),
+                  delta > 0 ? "alto" : delta < 0 ? "bajo" : "") +
+          tarjeta("Ingreso diario", pesos(difIngreso),
+                  "de " + pesos(ingresoHoy) + " a " + pesos(ingresoSim),
+                  difIngreso > 0 ? "alto" : difIngreso < 0 ? "bajo" : "");
+
+      if (costo !== null) {
+        html += tarjeta("Utilidad bruta diaria", pesos(difUtilidad),
+                        "margen unitario " + money(precioSim - costo) + " por litro",
+                        difUtilidad > 0 ? "alto" : difUtilidad < 0 ? "bajo" : "");
+        html += tarjeta("Utilidad mensual", pesos(difUtilidad === null ? null : difUtilidad * 30),
+                        "proyección a 30 días al mismo ritmo",
+                        difUtilidad > 0 ? "alto" : difUtilidad < 0 ? "bajo" : "");
+      } else {
+        html += tarjeta("Ingreso mensual", pesos(difIngreso * 30),
+                        "proyección a 30 días al mismo ritmo",
+                        difIngreso > 0 ? "alto" : difIngreso < 0 ? "bajo" : "");
+      }
+
+      html += "</div>";
+
+      if (equilibrio !== null && equilibrio > 0) {
+        html += '<p class="fin__nota">Para no perder utilidad bajando ' + Math.abs(delta).toFixed(2) +
+                " $/L necesitas vender <strong>" + equilibrio.toLocaleString("es-MX") +
+                " litros más al día</strong> (" + Math.round(equilibrio / v * 100) + "% sobre tu volumen actual).</p>";
+      }
+      if (costo === null) {
+        html += '<p class="fin__nota">Sin costo por litro, esto es <strong>ingreso</strong>, no utilidad. ' +
+                "Captura tu costo en TAR más flete para ver el margen bruto y el punto de equilibrio.</p>";
+      }
+      return html + "</div>";
+    }
 
     function tarjeta(titulo, valor, pie, tono) {
       return '<div class="sim__card' + (tono ? " sim__card--" + tono : "") + '">' +
@@ -2193,6 +2562,52 @@
   }
 
   /* ---------------------------------------------------------
+     10 quater. Panel de filtros plegable (teléfono y tableta)
+     --------------------------------------------------------- */
+
+  function filtrosAbiertos() {
+    return $("controls").classList.contains("is-open");
+  }
+
+  function cerrarFiltrosEnMovil() {
+    if (window.matchMedia("(max-width:1080px)").matches && filtrosAbiertos()) alternarFiltros(false);
+  }
+
+  function alternarFiltros(abrir) {
+    var caja = $("controls"), btn = $("filtersBtn");
+    var on = abrir === undefined ? !filtrosAbiertos() : !!abrir;
+    caja.classList.toggle("is-open", on);
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-expanded", on ? "true" : "false");
+    $("filtersLabel").textContent = on ? "Cerrar" : "Filtros";
+    resumenFiltros();
+  }
+
+  /* Con los filtros cerrados, el encabezado resume qué está aplicado para que
+     nadie navegue sin saber qué está viendo. */
+  /* En pantallas angostas las tablas se desplazan a lo ancho. Sin una señal
+     visible, el usuario no descubre las columnas de precio. */
+  function marcarScrollables() {
+    document.querySelectorAll(".tablebox").forEach(function (caja) {
+      var hay = caja.scrollWidth > caja.clientWidth + 4;
+      caja.classList.toggle("tiene-scroll", hay);
+      caja.classList.toggle("al-inicio", hay && caja.scrollLeft < 6);
+    });
+  }
+
+  function resumenFiltros() {
+    var el = $("filtersSummary");
+    if (!el) return;
+    var partes = [PRODUCTS[state.product].label];
+    if (state.period) partes.push(fmtPeriod(state.period));
+    if (state.estado) partes.push(state.estado === SIN_UBICACION ? "sin ubicación" : state.estado);
+    if (state.municipio) partes.push(state.municipio === SIN_UBICACION ? "sin municipio" : state.municipio);
+    if (state.onlyMine) partes.push("solo mis estaciones");
+    el.textContent = partes.join(" · ");
+    el.classList.toggle("is-visible", !filtrosAbiertos());
+  }
+
+  /* ---------------------------------------------------------
      11. Tooltips
      --------------------------------------------------------- */
 
@@ -2249,11 +2664,15 @@
       state.municipio = "";
       buildMunicipioSelect();
       state.page = 1;
+      mapaEncuadrado = false;      // el mapa vuelve a encuadrar la nueva selección
       render();
     });
 
     $("municipioSelect").addEventListener("change", function () {
-      state.municipio = this.value; state.page = 1; render();
+      state.municipio = this.value; state.page = 1;
+      mapaEncuadrado = false;
+      render();
+      cerrarFiltrosEnMovil();
     });
 
     $("mineToggle").addEventListener("click", function () {
@@ -2264,6 +2683,8 @@
     });
 
     $("exportBtn").addEventListener("click", exportarCsv);
+
+    $("filtersBtn").addEventListener("click", function () { alternarFiltros(); });
 
     $("manageBtn").addEventListener("click", abrirGestor);
     $("mineModal").addEventListener("click", function (e) {
@@ -2327,6 +2748,19 @@
     });
 
     $("simReset").addEventListener("click", function () { sim.precio = null; calcularSimulacion(); });
+
+    [["simVolumen", "volumen"], ["simCosto", "costo"], ["simExtra", "extra"]].forEach(function (par) {
+      var campo = $(par[0]);
+      if (!campo) return;
+      if (sim[par[1]] !== null) campo.value = sim[par[1]];
+      campo.addEventListener("input", function () {
+        var v = parseFloat(this.value);
+        sim[par[1]] = isFinite(v) && v >= 0 ? v : null;
+        guardarFinanzas();
+        calcularSimulacion();
+        renderBriefing();
+      });
+    });
     $("refreshBtn").addEventListener("click", function () { load(true); });
     $("onlyProduct").addEventListener("change", function () { state.page = 1; render(); });
 
@@ -2360,10 +2794,22 @@
       if (state.rows.length) render();
     });
 
+    /* Leaflet necesita saber que cambió el tamaño de su contenedor. */
     window.addEventListener("resize", function () {
+      if (mapaListo) setTimeout(function () { mapa.invalidateSize(); }, 220);
       clearTimeout(window.__rz);
-      window.__rz = setTimeout(function () { if (state.rows.length) renderRail(scoped()); }, 200);
+      window.__rz = setTimeout(function () {
+        if (state.rows.length) renderRail(scoped());
+        marcarScrollables();
+      }, 200);
     });
+
+    document.addEventListener("scroll", function (e) {
+      var caja = e.target;
+      if (caja && caja.classList && caja.classList.contains("tablebox")) {
+        caja.classList.toggle("al-inicio", caja.scrollLeft < 6);
+      }
+    }, true);
   }
 
   /* ---------------------------------------------------------
@@ -2396,6 +2842,8 @@
 
     document.body.setAttribute("data-product", state.product);
     cargarMisPermisos();
+    cargarFinanzas();
+    iniciarMapa();
     setMine(false);
     initEvents();
     initTooltip();

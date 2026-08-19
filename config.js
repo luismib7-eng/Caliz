@@ -121,6 +121,12 @@ window.APP_CONFIG = {
      Referencias: 3–5 km en zona urbana, 15–25 km en carretera. */
   RADIO_KM: 5,
 
+  /* Tope de estaciones dibujadas en el mapa por encuadre. Leaflet en modo
+     canvas aguanta miles de puntos, pero en teléfonos modestos conviene un
+     límite: al acercar el mapa o filtrar por estado, entran todas las de la
+     zona. Sube el número si trabajas en escritorio. */
+  MAPA_MAX_PUNTOS: 2500,
+
   /* Estado que se asigna a las estaciones sin ubicación conocida.
      Déjalo en "" (recomendado): con un valor, TODAS las estaciones sin dato
      quedan bajo ese estado, y entonces el "promedio estatal" contra el que se

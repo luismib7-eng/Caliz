@@ -2,15 +2,23 @@
 <html lang="es" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LB GAS 23 · Monitor de Precios</title>
 <meta name="description" content="LB GAS 23 · Servicio Bautista. Tablero de inteligencia de precios de gasolina Regular, Premium y Diésel por estación de servicio.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="apple-touch-icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1E3A5F">
+<!-- Safari en iOS: instalar desde "Compartir → Añadir a pantalla de inicio" -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LB GAS 23">
+<meta name="format-detection" content="telephone=no">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -40,11 +48,14 @@
       <button class="btn btn--ghost" id="themeBtn" type="button" aria-label="Cambiar entre modo oscuro y claro">
         <span aria-hidden="true">◐</span> Tema
       </button>
+      <button class="btn filtros-btn" id="filtersBtn" type="button" aria-expanded="false" aria-controls="controls">
+        <span class="btn__icon" aria-hidden="true">☰</span> <span id="filtersLabel">Filtros</span>
+      </button>
     </div>
   </div>
 
   <!-- Controles -->
-  <div class="wrap controls">
+  <div class="wrap controls" id="controls">
     <div class="segmented" role="tablist" aria-label="Producto">
       <button class="seg seg--regular is-active" role="tab" aria-selected="true" data-product="regular">Regular</button>
       <button class="seg seg--premium" role="tab" aria-selected="false" data-product="premium">Premium</button>
@@ -78,9 +89,23 @@
 
     <p class="controls__note" id="datasetNote">—</p>
   </div>
+
+  <p class="wrap controls__resumen" id="filtersSummary"></p>
 </header>
 
 <main class="wrap">
+
+  <!-- ══════════════ BRIEFING EJECUTIVO ══════════════ -->
+  <details class="panel briefing" id="briefingPanel" open>
+    <summary class="briefing__summary">
+      <span>
+        <span class="panel__title">Postura comercial de hoy</span>
+        <span class="panel__sub" id="briefingSub">Resumen de tus estaciones frente a su mercado local.</span>
+      </span>
+      <span class="sim__chevron" aria-hidden="true">▾</span>
+    </summary>
+    <div class="briefing__body" id="briefingBody"></div>
+  </details>
 
   <!-- ══════════════ TARJETAS KPI ══════════════ -->
   <section class="kpis" aria-label="Indicadores principales">
@@ -167,6 +192,24 @@
     </div>
   </section>
 
+  <!-- ══════════════ MAPA TÁCTICO DE COMPETENCIA ══════════════ -->
+  <section class="panel" aria-label="Mapa de competencia">
+    <div class="panel__head panel__head--row">
+      <div>
+        <h2 class="panel__title">Mapa táctico de competencia</h2>
+        <p class="panel__sub" id="mapSub">Estaciones de la selección, con el color del semáforo local.</p>
+      </div>
+      <div class="map__leyenda">
+        <span class="chip chip--iqr">Por debajo</span>
+        <span class="chip">En promedio</span>
+        <span class="chip chip--alto">Por encima</span>
+        <span class="chip chip--propia">★ Mis estaciones</span>
+      </div>
+    </div>
+    <div class="map" id="mapView"></div>
+    <p class="map__nota" id="mapNota"></p>
+  </section>
+
   <!-- ══════════════ COMPETENCIA DIRECTA ══════════════ -->
   <section class="panel" aria-label="Monitoreo de competencia directa">
     <div class="panel__head">
@@ -203,6 +246,24 @@
         <label class="field">
           <span class="field__label">Precio simulado ($/L)</span>
           <input id="simPrice" class="input input--num" type="number" step="0.01" min="0" inputmode="decimal">
+        </label>
+
+        <label class="field">
+          <span class="field__label">Venta diaria (litros)</span>
+          <input id="simVolumen" class="input input--num" type="number" step="100" min="0"
+                 inputmode="numeric" placeholder="15000">
+        </label>
+
+        <label class="field">
+          <span class="field__label">Costo por litro (opcional)</span>
+          <input id="simCosto" class="input input--num" type="number" step="0.01" min="0"
+                 inputmode="decimal" placeholder="—">
+        </label>
+
+        <label class="field">
+          <span class="field__label">Litros extra esperados</span>
+          <input id="simExtra" class="input input--num" type="number" step="100"
+                 inputmode="numeric" placeholder="0">
         </label>
 
         <div class="field">
@@ -386,6 +447,7 @@
 
 <div class="tooltip" id="tooltip" role="status" hidden></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="config.js"></script>

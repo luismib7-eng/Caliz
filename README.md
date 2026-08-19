@@ -669,3 +669,96 @@ suficientes explica qué falta y dónde capturarlo, en lugar de mostrar un cero 
 | Gráficas ocultas del panel Profeco | Ya era así: `renderProfeco()` solo dibuja la vista activa |
 | `saveCache` desactiva el modo offline con el padrón completo | **Decisión consciente, no corregida.** El padrón pesa ~3 MB en JSON y el límite de `localStorage` es de 5 MB; migrar a IndexedDB agregaría una capa asíncrona por un beneficio marginal, ya que el respaldo local del repositorio cumple la misma función sin código extra |
 | Rigor de `esc()` en las plantillas HTML | Revisado: todos los campos de origen externo pasan por `esc()` |
+
+---
+
+## 13. Comportamiento en teléfono y tableta
+
+El corte está en **1080 px**: por debajo, el tablero cambia de comportamiento.
+
+- **La barra superior deja de ser fija.** Con todos los filtros desplegados llegaba a ocupar 594 px
+  de una pantalla de 844: la mitad del teléfono se iba en encabezado antes de ver un solo dato.
+- **Los filtros se pliegan** tras el botón **☰ Filtros**. Cerrados, una línea bajo la barra resume
+  lo aplicado — *"Regular · 18 ago 2026 · Jalisco · Zapopan"*— para que nunca navegues sin saber qué
+  estás viendo. Al elegir un municipio el panel se cierra solo y devuelve la pantalla.
+- **Una sola columna** en tarjetas KPI, gráficas, simulador y tablas regionales.
+- **Las tablas se desplazan a lo ancho** dentro de su propio contenedor, con inercia en iOS. Cuando
+  hay columnas fuera de vista aparece el aviso *"Desliza para ver los precios →"* y un velo en el
+  borde derecho, que desaparecen al primer desplazamiento.
+- **El modal usa `dvh`** en lugar de `vh`: en Safari de iOS, `100vh` incluye las barras del
+  navegador y recortaba el contenido al aparecer o desaparecer.
+
+Medición del alto del encabezado, antes y después:
+
+| Dispositivo | Antes | Ahora |
+|---|---|---|
+| iPhone SE (375 px) | 558 px | 147 px |
+| iPhone 14 (390 px) | 594 px | 186 px |
+| iPad mini (768 px) | 280 px | 144 px |
+| iPad Pro vertical (1024 px) | 332 px | 183 px |
+
+Ningún ancho probado —375, 390, 430, 768, 1024 px— produce desplazamiento horizontal de página:
+`scrollWidth` coincide con el ancho del viewport en todos. En escritorio no cambia nada: la barra
+sigue fija, los filtros siempre visibles y el botón ☰ oculto.
+
+---
+
+## 14. Mapa, briefing y simulador financiero
+
+### Mapa táctico de competencia
+
+Leaflet 1.9.4 por CDN con `preferCanvas: true`. Dibuja solo las estaciones **dentro del encuadre
+visible**, con tope de `MAPA_MAX_PUNTOS` (2,500 por omisión): pintar 14,000 puntos vectoriales
+tumbaría cualquier teléfono. Al acercar o filtrar por estado entran todas las de la zona, y cuando el
+tope recorta algo el pie del mapa lo dice.
+
+- **Competencia:** círculos con el color del semáforo local — verde por debajo del promedio de su
+  radio, rojo por encima, gris en el promedio.
+- **Estaciones propias:** marcador azul de marca con halo pulsante y ★, más un círculo punteado con
+  el radio de competencia (`RADIO_KM`).
+- **Popup:** razón social, permiso, marca, ubicación, los tres precios vigentes y el diferencial
+  contra su radio.
+- Los mosaicos son de OpenStreetMap, con su atribución obligatoria. En modo oscuro se aplica un
+  filtro al mapa base para que no compita con los datos.
+
+> Un detalle que costó encontrar: abrir un popup hace que Leaflet desplace el mapa (`autoPan`), lo
+> que dispara `moveend` y provocaba un repintado que borraba el marcador —y con él, el popup recién
+> abierto—. Ahora no se repinta mientras haya un popup abierto, y el repintado pendiente se ejecuta
+> al cerrarlo.
+
+### Briefing ejecutivo
+
+Tarjeta colapsable al inicio del tablero. Por cada estación propia genera tres líneas:
+
+1. Cuántos competidores de su radio movieron precio contra el corte anterior.
+2. Su posición: diferencial contra el promedio del radio y lugar dentro de él.
+3. La acción: el ajuste mínimo en centavos para entrar al top 3, o —si ya está ahí— cuánta holgura
+   tiene antes de perder posición, que es margen que puede recuperar.
+
+Con la venta diaria capturada, la recomendación también expresa el ajuste en pesos por día.
+
+### Simulador financiero
+
+Tres campos nuevos, guardados en el navegador: **venta diaria en litros**, **costo por litro**
+(opcional) y **litros extra esperados**.
+
+| Con venta diaria | Con costo por litro |
+|---|---|
+| Δ por litro, ingreso diario y proyección mensual | Utilidad bruta diaria y mensual, y punto de equilibrio |
+
+El punto de equilibrio responde la pregunta que importa al bajar el precio: *para no perder utilidad
+bajando $0.10/L necesitas vender 1,112 litros más al día (7% sobre tu volumen actual)*.
+
+> **Sin costo por litro, el tablero reporta ingreso, no utilidad, y lo dice explícitamente.** El
+> costo en TAR más flete no está en ninguna publicación de la CNE ni del SAT; suponerlo convertiría
+> una cifra dura en una estimación disfrazada.
+
+### Instalación como app (PWA)
+
+`manifest.json` con iconos de 192, 512 y 512 maskable, más las meta de Apple. En iPhone:
+**Compartir → Añadir a pantalla de inicio**; el tablero abre en modo `standalone`, sin barras de
+Safari, con el isotipo de LB GAS 23 como ícono.
+
+No se incluye *service worker*: sin él no hay modo offline, pero tampoco una capa de caché que se
+quede con una versión vieja del tablero sin avisar. El respaldo local del repositorio ya cubre la
+continuidad de datos.
