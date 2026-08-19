@@ -20,7 +20,7 @@ env:
   # Endpoint de datos de la Comision Nacional de Energia.
   # Se puede sobrescribir en Settings > Secrets and variables > Actions > Variables
   # con la variable URL_XML, o al lanzarlo a mano con el campo de arriba.
-  URL_POR_OMISION: "https://publicacionexterna.azurewebsites.net/publicaciones/prices"
+    URL_POR_OMISION: "https://publicacionexterna.azurewebsites.net/publicaciones/prices"
 
 jobs:
   actualizar:
