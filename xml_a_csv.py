@@ -362,6 +362,10 @@ def escribir_historico(filas, ruta, fecha, conservar):
         acc[k][0] += valor
         acc[k][1] += 1
 
+    # Ámbitos nacional, estatal y regional. A propósito NO se guarda el nivel
+    # municipal: con 1,400 municipios el archivo pasaría de 5 KB a 550 KB por
+    # corte, y a 120 cortes serían 33 MB que el navegador tendría que leer en
+    # cada carga. Al filtrar un municipio, la tendencia usa su estado.
     for f in filas:
         for prod in ("Regular", "Premium", "Diesel"):
             if not f[prod]:
@@ -370,8 +374,8 @@ def escribir_historico(filas, ruta, fecha, conservar):
             sumar("nacional", "MX", prod, v)
             if f["Estado"] and f["Estado"] != SIN_DATO:
                 sumar("estado", f["Estado"], prod, v)
-            if f["Municipio"] and f["Municipio"] != SIN_DATO:
-                sumar("municipio", (f["Estado"] or "") + "»" + f["Municipio"], prod, v)
+            if f.get("Region") and f["Region"] != SIN_DATO:
+                sumar("region", f["Region"], prod, v)
 
     previas, fechas = [], []
     if os.path.exists(ruta) and os.path.getsize(ruta) > 0:
@@ -462,6 +466,92 @@ def cargar_estados_geojson(ruta):
     return salida
 
 
+# ---------------------------------------------------------------------------
+#  Municipios: TopoJSON (arcos cuantizados y en deltas) -> punto en polígono
+# ---------------------------------------------------------------------------
+
+def cargar_municipios_topojson(ruta, objeto="municipalities"):
+    """
+    Decodifica un TopoJSON y devuelve [(municipio, anillos, bbox)].
+    Los arcos vienen como incrementos sobre una malla cuantizada: hay que
+    acumularlos y aplicar la transformación antes de tener coordenadas reales.
+    """
+    import json
+    with io.open(ruta, encoding="utf-8") as fh:
+        topo = json.load(fh)
+    if objeto not in (topo.get("objects") or {}):
+        return []
+
+    tr = topo.get("transform") or {}
+    sx, sy = (tr.get("scale") or [1, 1])
+    tx, ty = (tr.get("translate") or [0, 0])
+
+    arcos = []
+    for arco in topo.get("arcs", []):
+        x = y = 0
+        puntos = []
+        for par in arco:
+            x += par[0]
+            y += par[1]
+            puntos.append((x * sx + tx, y * sy + ty))
+        arcos.append(puntos)
+
+    def linea(indices):
+        pts = []
+        for i in indices:
+            tramo = arcos[~i][::-1] if i < 0 else arcos[i]
+            pts.extend(tramo[1:] if pts else tramo)
+        return pts
+
+    salida = []
+    for g in topo["objects"][objeto].get("geometries", []):
+        if g.get("type") == "Polygon":
+            anillos = [linea(r) for r in g["arcs"]]
+        elif g.get("type") == "MultiPolygon":
+            anillos = [linea(poly[0]) for poly in g["arcs"]]
+        else:
+            continue
+        nombre = ""
+        props = g.get("properties") or {}
+        for clave in ("mun_name", "NOM_MUN", "municipio", "name"):
+            if props.get(clave):
+                nombre = str(props[clave]).strip()
+                break
+        if not nombre or not anillos or not anillos[0]:
+            continue
+        xs = [p[0] for r in anillos for p in r]
+        ys = [p[1] for r in anillos for p in r]
+        salida.append((nombre, anillos, (min(xs), min(ys), max(xs), max(ys))))
+    return salida
+
+
+def indexar_municipios(municipios, paso=0.5):
+    """Rejilla de bounding boxes: evita recorrer 2,400 polígonos por estación."""
+    malla = {}
+    for k, (_n, _a, bb) in enumerate(municipios):
+        for gx in range(int(bb[0] // paso), int(bb[2] // paso) + 1):
+            for gy in range(int(bb[1] // paso), int(bb[3] // paso) + 1):
+                malla.setdefault((gx, gy), []).append(k)
+    return {"paso": paso, "malla": malla}
+
+
+def municipio_por_coordenadas(x, y, municipios, indice):
+    paso = indice["paso"]
+    for k in indice["malla"].get((int(x // paso), int(y // paso)), ()):
+        nombre, anillos, bb = municipios[k]
+        if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
+            continue
+        if _dentro(x, y, anillos[0]):
+            hueco = False
+            for interior in anillos[1:]:
+                if _dentro(x, y, interior):
+                    hueco = True
+                    break
+            if not hueco:
+                return nombre
+    return ""
+
+
 def _dentro(x, y, anillo):
     dentro, n = False, len(anillo)
     j = n - 1
@@ -502,22 +592,27 @@ def estado_por_coordenadas(x, y, entidades, tolerancia=0.2):
     return (mejor, True) if mejor else ("", False)
 
 
-def enriquecer_geografia(catalogo, ruta_geojson):
-    """Rellena Estado (por coordenadas) y Region (por tabla oficial) donde falten."""
+def enriquecer_geografia(catalogo, ruta_geojson, ruta_municipios=""):
+    """Rellena Estado y Municipio por coordenadas, y Region por tabla oficial."""
     entidades = cargar_estados_geojson(ruta_geojson) if ruta_geojson else []
-    st = {"por_coordenadas": 0, "aproximados": 0, "sin_asignar": 0, "region": 0}
+    municipios, indice = [], None
+    if ruta_municipios:
+        municipios = cargar_municipios_topojson(ruta_municipios)
+        if municipios:
+            indice = indexar_municipios(municipios)
+    st = {"por_coordenadas": 0, "aproximados": 0, "sin_asignar": 0, "region": 0, "municipios": 0}
     vistos = set()
     for clave, reg in catalogo.items():
         if id(reg) in vistos:
             continue
         vistos.add(id(reg))
-        if not reg.get("Estado") and entidades:
-            try:
-                x = float(reg.get("Lon") or "")
-                y = float(reg.get("Lat") or "")
-            except ValueError:
-                st["sin_asignar"] += 1
-                continue
+        try:
+            x = float(reg.get("Lon") or "")
+            y = float(reg.get("Lat") or "")
+        except ValueError:
+            x = y = None
+
+        if not reg.get("Estado") and entidades and x is not None:
             nombre, aprox = estado_por_coordenadas(x, y, entidades)
             if nombre:
                 reg["Estado"] = nombre
@@ -526,6 +621,14 @@ def enriquecer_geografia(catalogo, ruta_geojson):
                     st["aproximados"] += 1
             else:
                 st["sin_asignar"] += 1
+        elif not reg.get("Estado"):
+            st["sin_asignar"] += 1
+
+        if not reg.get("Municipio") and indice and x is not None:
+            m = municipio_por_coordenadas(x, y, municipios, indice)
+            if m:
+                reg["Municipio"] = m
+                st["municipios"] += 1
         if reg.get("Estado") and not reg.get("Region"):
             r = region_de(reg["Estado"])
             if r:
@@ -684,6 +787,8 @@ def main():
                     help="Marcas a reconocer en el reporte, separadas por coma")
     ap.add_argument("--geojson", default="",
                     help="GeoJSON de las 32 entidades para deducir Estado de las coordenadas del catálogo")
+    ap.add_argument("--municipios", default="",
+                    help="TopoJSON de municipios para deducir Municipio de las coordenadas del catálogo")
     ap.add_argument("--min", type=float, default=15.0, help="Precio mínimo válido (por omisión 15.00)")
     ap.add_argument("--max", type=float, default=45.0, help="Precio máximo válido (por omisión 45.00)")
     args = ap.parse_args()
@@ -692,10 +797,12 @@ def main():
     if args.catalogo and not catalogo:
         print("Aviso: no se cargó catálogo; las estaciones quedarán identificadas por su permiso.")
 
-    if args.geojson:
-        g = enriquecer_geografia(catalogo, args.geojson)
+    if args.geojson or args.municipios:
+        g = enriquecer_geografia(catalogo, args.geojson, args.municipios)
         print("Estados por coordenadas:  %d (%d aproximados por cercanía) · %d sin asignar · %d con región"
               % (g["por_coordenadas"], g["aproximados"], g["sin_asignar"], g["region"]))
+        if g["municipios"]:
+            print("Municipios por polígono:  %d" % g["municipios"])
 
     if args.exportar_catalogo:
         ce = exportar_catalogo(catalogo, args.exportar_catalogo)

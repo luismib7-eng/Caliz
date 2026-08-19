@@ -134,7 +134,11 @@ function leerCatalogo_(libro) {
     }
     return -1;
   };
-  var cPermiso = col(['permiso cre', 'número', 'numero', 'permiso']);
+  // Los alias deben cubrir lo mismo que FIELD_ALIASES en app.js: si el
+  // encabezado de la hoja no coincide, el catálogo se descarta en silencio.
+  var cPermiso = col(['permiso cre', 'permisocre', 'permiso_cre', 'numero permiso',
+                      'número permiso', 'num permiso', 'numpermiso', 'número',
+                      'numero', 'permiso', 'cre id', 'cre_id']);
   if (cPermiso < 0) return idx;
   var cEst = col(['estacion', 'estación', 'razón social', 'razon social']);
   var cDir = col(['direccion', 'dirección', 'domicilio']);
@@ -163,8 +167,10 @@ function leerCatalogo_(libro) {
 function periodoYaCargado_(hoja, fecha) {
   var ultima = hoja.getLastRow();
   if (ultima < 2) return false;
-  var desde = Math.max(2, ultima - 20000);
-  var col = hoja.getRange(desde, 1, ultima - desde + 1, 1).getDisplayValues();
+  // Se revisa la columna completa: limitar la búsqueda a las últimas filas
+  // fallaba si alguien reordenaba la hoja o insertaba un corte fuera de orden,
+  // y el precio de ese error era duplicar ~13,800 filas.
+  var col = hoja.getRange(2, 1, ultima - 1, 1).getDisplayValues();
   for (var i = col.length - 1; i >= 0; i--) {
     if (String(col[i][0]).trim() === fecha) return true;
   }

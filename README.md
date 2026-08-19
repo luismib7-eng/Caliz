@@ -266,6 +266,7 @@ actualiza solo en la siguiente lectura.
 ├── historico.csv                       Promedios diarios por ámbito y producto (gráfica de tendencia)
 ├── reporte_mercado.csv                 Métricas estilo Profeco: nacional, por marca y por región
 ├── entidades_mx.geojson                Topología de las 32 entidades para deducir el estado
+├── municipios_mx.topojson              Polígonos de los 2,436 municipios para deducir el municipio
 ├── AppsScript.gs                       Ingesta diaria del XML a Google Sheets
 └── .github/
     └── workflows/
@@ -456,12 +457,27 @@ CDMX), Golfo (Ver, Tab), Sur (Gro, Oax, Chis) y Sureste (Camp, Yuc, Q. Roo).
 `xml_a_csv.py --reporte reporte_mercado.csv` escribe las mismas métricas como archivo, un renglón por
 bloque, producto y fecha (~35 KB al año). El panel del tablero las recalcula en vivo desde el padrón.
 
-### El estado de cada estación: punto en polígono
+### Estado y municipio de cada estación: punto en polígono
 
-El catálogo de la CNE trae coordenadas pero no entidad. `--geojson entidades_mx.geojson` resuelve el
-estado por punto en polígono sobre la topología de las 32 entidades, y de ahí sale la región.
+El catálogo de la CNE trae coordenadas pero ni entidad ni municipio.
 
-Resultado sobre el catálogo real: **14,936 de 15,034 asignadas**, de las cuales 133 por cercanía
+```bash
+python3 xml_a_csv.py precios_del_dia.xml --catalogo places.xml \
+        --geojson entidades_mx.geojson \
+        --municipios municipios_mx.topojson \
+        --exportar-catalogo catalogo_estaciones.csv --salida fallback.csv
+```
+
+`--municipios` lee un TopoJSON de los 2,436 municipios: decodifica los arcos cuantizados, arma los
+polígonos e indexa sus bounding boxes en una rejilla para no recorrerlos todos por cada estación.
+Resultado: **14,158 de 15,034 estaciones con municipio**, en menos de un segundo. Comprobado contra
+puntos conocidos: Cancún → Benito Juárez, Guadalajara → Guadalajara, Tlajomulco → Tlajomulco de
+Zúñiga.
+
+`--geojson` hace lo propio con el estado sobre la topología de las 32 entidades, y de ahí sale la
+región.
+
+Resultado del estado sobre el catálogo real: **14,936 de 15,034 asignadas**, de las cuales 133 por cercanía
 —estaciones costeras que caen fuera del polígono simplificado, a las que se asigna la entidad más
 próxima dentro de 20 km— y 98 sin asignar. Cerca de los límites estatales el polígono simplificado
 puede equivocarse; si una estación tuya aparece en el estado vecino, corrígela a mano en
@@ -472,7 +488,7 @@ puede equivocarse; si una estación tuya aparece en el estado vecino, corrígela
 | Archivo | Qué contiene | Tamaño por corte | Para qué sirve |
 |---|---|---|---|
 | `fallback.csv` | Padrón completo: una fila por estación | ~1.6 MB (13,825 filas) | Tabla, KPIs, dispersión, semáforo, simulador, panel Profeco |
-| `historico.csv` | Promedios por ámbito y producto | ~5 KB | Gráfica de tendencia y delta de las KPIs |
+| `historico.csv` | Promedios nacional, por estado y por región | ~6 KB | Gráfica de tendencia y delta de las KPIs |
 | `reporte_mercado.csv` | Métricas por marca y región | ~2 KB | Registro semanal del reporte |
 
 El flujo acumula en los tres con ventanas distintas: `--conservar 7` para el padrón (una semana móvil)
@@ -484,6 +500,13 @@ que el padrón.
 
 Si prefieres la serie completa por estación, sube `--conservar` y apunta `FALLBACK_CSV` al archivo
 acumulado; el tablero usa los periodos del padrón cuando tiene más historia que `historico.csv`.
+
+### Por qué el histórico no baja al municipio
+
+`historico.csv` guarda los ámbitos nacional, estatal y regional. El municipal se excluye a propósito:
+con 1,406 municipios el archivo pasa de 6 KB a 556 KB por corte, y a 120 cortes serían 33 MB que el
+navegador tendría que descargar y recorrer en cada carga. Cuando filtras un municipio, la gráfica de
+tendencia degrada a la serie de su estado y lo declara en el subtítulo.
 
 ### Ejecutar el pipeline a mano con acumulación
 
@@ -632,3 +655,17 @@ Reglas que el código sostiene y cómo se verifican.
 
 Los estados vacíos son parte del diseño, no un pendiente: cuando un bloque no tiene datos
 suficientes explica qué falta y dónde capturarlo, en lugar de mostrar un cero que se lea como dato.
+
+---
+
+## 12. Respuesta a la auditoría externa
+
+| Hallazgo | Resolución |
+|---|---|
+| Alias cortos de permiso en `AppsScript.gs` descartaban el catálogo en silencio | Ampliados para cubrir lo mismo que `FIELD_ALIASES` de `app.js` |
+| `periodoYaCargado_` solo revisaba las últimas 20,000 filas | Revisa la columna completa: reordenar la hoja ya no puede duplicar un corte |
+| `computeMercado()` reconstruía la rejilla espacial en cada cambio de vista | Memorizado por firma (periodo + filas + radio): los filtros cosméticos ya no lo recalculan |
+| El interruptor "Solo mis estaciones" no respondía sin estaciones configuradas | Ahora abre el gestor con ese clic |
+| Gráficas ocultas del panel Profeco | Ya era así: `renderProfeco()` solo dibuja la vista activa |
+| `saveCache` desactiva el modo offline con el padrón completo | **Decisión consciente, no corregida.** El padrón pesa ~3 MB en JSON y el límite de `localStorage` es de 5 MB; migrar a IndexedDB agregaría una capa asíncrona por un beneficio marginal, ya que el respaldo local del repositorio cumple la misma función sin código extra |
+| Rigor de `esc()` en las plantillas HTML | Revisado: todos los campos de origen externo pasan por `esc()` |

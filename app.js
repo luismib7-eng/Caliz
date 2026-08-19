@@ -787,6 +787,12 @@
       ambito = "estado"; clave = state.estado; etiqueta = state.estado;
     }
     var sel = historico.filter(function (h) { return h.ambito === ambito && h.clave === clave; });
+    /* El histórico guarda nacional, estado y región, no municipio: al filtrar
+       un municipio la serie degrada a su estado y, en último caso, al país. */
+    if (!sel.length && ambito === "municipio" && state.estado && state.estado !== SIN_UBICACION) {
+      sel = historico.filter(function (h) { return h.ambito === "estado" && h.clave === state.estado; });
+      etiqueta = state.estado;
+    }
     if (!sel.length && ambito !== "nacional") {
       sel = historico.filter(function (h) { return h.ambito === "nacional"; });
       etiqueta = "nacional";
@@ -870,7 +876,7 @@
     var mias = state.rows.filter(function (r) { return r._own; }).length;
     var toggle = $("mineToggle");
     $("mineCount").textContent = mias ? "(" + mias + ")" : "";
-    toggle.disabled = !mias;
+    toggle.disabled = false;   // sin estaciones, el clic abre el gestor
     toggle.title = mias
       ? "Aísla tus " + mias + " estación(es); los promedios del mercado se siguen calculando con el padrón completo."
       : "Aún no eliges estaciones: usa el botón \u201cMis estaciones\u201d para agregar hasta 5.";
@@ -932,10 +938,15 @@
 
     var keepM = state.municipio;
     selM.innerHTML = "";
-    selM.appendChild(new Option("Todos los municipios", ""));
+    selM.appendChild(new Option(lista.length
+      ? "Todos los municipios (" + lista.length.toLocaleString("es-MX") + ")"
+      : "El catálogo no trae municipios", ""));
     lista.forEach(function (v) { selM.appendChild(new Option(v, v)); });
     if (sinMuni && lista.length) selM.appendChild(new Option("Sin municipio (" + sinMuni.toLocaleString("es-MX") + ")", SIN_UBICACION));
     selM.disabled = false;
+    selM.title = lista.length
+      ? lista.length.toLocaleString("es-MX") + " municipios en la selección actual"
+      : "Ninguna estación de la selección tiene municipio. Genera el catálogo con --municipios o captura la columna Municipio.";
 
     var validos = [""].concat(lista);
     if (sinMuni && lista.length) validos.push(SIN_UBICACION);
@@ -1038,15 +1049,26 @@
     return out;
   }
 
+  var mercadoFirma = "";
+
   function computeMercado() {
-    construirRejilla(periodRows());
+    /* Los promedios y la rejilla dependen solo del periodo y del padrón cargado,
+       no de los filtros de vista. Recalcularlos en cada clic cuesta caro con
+       13,800 estaciones, así que se memorizan por firma. */
+    var base = periodRows();
+    var firma = state.period + "|" + base.length + "|" + (state.updatedAt ? state.updatedAt.getTime() : 0) +
+                "|" + (CFG.RADIO_KM || 0);
+    if (firma === mercadoFirma) return;
+    mercadoFirma = firma;
+
+    construirRejilla(base);
     var acc = { municipio: {}, estado: {}, nacional: {} };
     var sumar = function (bolsa, clave, prod, valor) {
       var k = clave + "|" + prod;
       if (!bolsa[k]) bolsa[k] = { t: 0, n: 0 };
       bolsa[k].t += valor; bolsa[k].n++;
     };
-    periodRows().forEach(function (r) {
+    base.forEach(function (r) {
       ["regular", "premium", "diesel"].forEach(function (p) {
         if (r[p] === null) return;
         sumar(acc.nacional, "MX", p, r[p]);
@@ -2235,6 +2257,9 @@
     });
 
     $("mineToggle").addEventListener("click", function () {
+      // Sin estaciones elegidas el interruptor no tiene nada que aislar:
+      // se abre el gestor en lugar de dejar al usuario sin respuesta.
+      if (!state.rows.some(function (r) { return r._own; })) { abrirGestor(); return; }
       setMine(!state.onlyMine); state.page = 1; render();
     });
 
