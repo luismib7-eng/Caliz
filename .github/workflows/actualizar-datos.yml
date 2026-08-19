@@ -1,15 +1,26 @@
 name: Actualizar precios de combustibles
 
-on:
-  workflow_dispatch: {}
+"on":
+  workflow_dispatch:
+    inputs:
+      url_xml:
+        description: "URL del XML (opcional, para probar otro origen)"
+        required: false
+        default: ""
   schedule:
-    # Diario 13:00 UTC = 07:00 CDMX
+    # Diario 13:00 UTC = 07:00 en el centro de Mexico
     - cron: "0 13 * * *"
-    # Lunes 14:00 UTC = 08:00 CDMX (corte semanal)
+    # Lunes 14:00 UTC = 08:00 en el centro de Mexico (corte semanal)
     - cron: "0 14 * * 1"
 
 permissions:
   contents: write
+
+env:
+  # Endpoint de datos de la Comision Nacional de Energia.
+  # Se puede sobrescribir en Settings > Secrets and variables > Actions > Variables
+  # con la variable URL_XML, o al lanzarlo a mano con el campo de arriba.
+  URL_POR_OMISION: "https://publicacionexterna.azurewebsites.net/publicaciones/prices"
 
 jobs:
   actualizar:
@@ -17,87 +28,96 @@ jobs:
     steps:
       - name: Clonar el repositorio
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Preparar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Descargar datos oficiales con respaldo multi-fuente
-        id: download_step
-        env:
-          URL_CUSTOM: ${{ vars.URL_XML }}
+      - name: Descargar el XML oficial
+        id: descarga
         run: |
-          # Lista de URLs oficiales y espejos
-          URLS=(
-            "${URL_CUSTOM}"
-            "https://www.cne.gob.mx/media/precios/precios.xml"
-            "https://publicacionexterna.cre.gob.mx/precios/precios.xml"
-            "https://raw.githubusercontent.com/luismib7-eng/monitor-combustibles/main/precios_del_dia.xml"
-          )
+          URL="${{ github.event.inputs.url_xml }}"
+          [ -z "$URL" ] && URL="${{ vars.URL_XML }}"
+          [ -z "$URL" ] && URL="$URL_POR_OMISION"
+          echo "Origen: $URL"
 
-          DESCARGADO=false
+          # -w imprime el diagnostico aunque la descarga falle; sin -f para
+          # poder leer el codigo HTTP en lugar de morir en silencio.
+          CODIGO=$(curl -sSL --retry 3 --retry-all-errors --max-time 120 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36" \
+            -H "Accept: application/xml,text/xml,*/*" \
+            -o precios_del_dia.xml -w "%{http_code}" "$URL" || echo "000")
 
-          for URL in "${URLS[@]}"; do
-            if [ -z "$URL" ]; then continue; fi
-            echo "Intentando descargar desde: $URL"
-            
-            HTTP_CODE=$(curl -sSL -w "%{http_code}" -o temp_precios.xml \
-              --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 45 \
-              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36" \
-              -H "Accept: application/xml,text/xml,*/*" \
-              "$URL") || true
+          BYTES=$(wc -c < precios_del_dia.xml 2>/dev/null || echo 0)
+          echo "HTTP $CODIGO · $BYTES bytes"
 
-            # Verificar que sea un XML real con la etiqueta <precios o <estacion
-            if [ "$HTTP_CODE" = "200" ] && [ -s temp_precios.xml ] && grep -q -E "(<precios|<estacion)" temp_precios.xml; then
-              mv temp_precios.xml precios_del_dia.xml
-              echo "✅ XML válido obtenido desde $URL ($(stat -c%s precios_del_dia.xml) bytes)."
-              DESCARGADO=true
-              break
-            else
-              echo "⚠️ Falló $URL (HTTP $HTTP_CODE o contenido no XML)."
-            fi
-          done
-
-          if [ "$DESCARGADO" = false ]; then
-            echo "::warning::El portal de la CNE/CRE no respondió o bloqueó la IP de GitHub. Se mantiene el corte previo."
-            echo "skip_process=true" >> $GITHUB_OUTPUT
+          # El archivo real pesa ~2.5 MB y empieza con <precios ...>.
+          # Una pagina de error o un reto de WAF pesa unos pocos KB y es HTML.
+          if [ "$CODIGO" != "200" ] || [ "$BYTES" -lt 100000 ] || ! head -c 400 precios_del_dia.xml | grep -qi "<precios"; then
+            echo "::warning::Descarga no valida (HTTP $CODIGO, $BYTES bytes). Primeros bytes:"
+            head -c 300 precios_del_dia.xml || true
+            echo ""
+            echo "omitir=1" >> "$GITHUB_OUTPUT"
           else
-            echo "skip_process=false" >> $GITHUB_OUTPUT
+            echo "omitir=0" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Convertir, enriquecer y generar reportes
-        if: steps.download_step.outputs.skip_process != 'true'
+      - name: Convertir, acumular y generar el reporte de mercado
+        if: steps.descarga.outputs.omitir == '0'
         run: |
-          GEO_ARGS=""
-          if [ -f "entidades_mx.geojson" ]; then GEO_ARGS="$GEO_ARGS --geojson entidades_mx.geojson"; fi
-          if [ -f "municipios_mx.topojson" ]; then GEO_ARGS="$GEO_ARGS --municipios municipios_mx.topojson"; fi
-          
           python3 xml_a_csv.py precios_del_dia.xml \
                   --catalogo catalogo_estaciones.csv \
                   --salida fallback.csv \
                   --acumular --conservar 7 \
                   --historico historico.csv --historico-conservar 120 \
-                  --reporte reporte_mercado.csv \
-                  $GEO_ARGS
+                  --reporte reporte_mercado.csv
 
-      - name: Publicar cambios en el repositorio
-        if: steps.download_step.outputs.skip_process != 'true'
+      - name: Publicar si hubo cambios
+        if: steps.descarga.outputs.omitir == '0'
         run: |
-          rm -f precios_del_dia.xml temp_precios.xml
-          
-          # Verificar si realmente hubo cambios en los datos
-          if git diff --quiet -- fallback.csv historico.csv reporte_mercado.csv catalogo_estaciones.csv; then
-            echo "Sin cambios: los precios del periodo ya estaban cargados."
+          rm -f precios_del_dia.xml
+          if git diff --quiet -- fallback.csv historico.csv reporte_mercado.csv; then
+            echo "Sin cambios: la fecha ya estaba cargada."
             exit 0
           fi
-          
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add fallback.csv historico.csv reporte_mercado.csv
-          if [ -f "catalogo_estaciones.csv" ]; then git add catalogo_estaciones.csv; fi
-          
-          git commit -m "Actualización de precios: $(date -u +'%Y-%m-%d %H:%M UTC') [skip ci]"
-          git push origin main || git push
+          git commit -m "Precios $(date -u +%Y-%m-%d)"
+          git push
+
+      - name: Resumen de la corrida
+        if: always()
+        run: |
+          rm -f precios_del_dia.xml
+          if [ "${{ steps.descarga.outputs.omitir }}" = "1" ]; then
+            echo "### Sin datos nuevos" >> "$GITHUB_STEP_SUMMARY"
+            echo "El origen no entrego un XML valido en esta corrida." >> "$GITHUB_STEP_SUMMARY"
+            echo "Revisa el paso *Descargar el XML oficial* para ver el codigo HTTP." >> "$GITHUB_STEP_SUMMARY"
+            echo "El tablero sigue sirviendo el ultimo corte publicado." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Datos actualizados" >> "$GITHUB_STEP_SUMMARY"
+            echo "Periodos en fallback.csv: $(cut -d, -f1 fallback.csv | tail -n +2 | sort -u | tr '\n' ' ')" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+# ---------------------------------------------------------------
+#  NOTAS
+#
+#  Ruta obligatoria dentro del repositorio:
+#      .github/workflows/actualizar-datos.yml
+#
+#  Antes de la primera corrida:
+#    Settings > Actions > General > Workflow permissions:
+#       marca "Read and write permissions".
+#    La variable URL_XML es OPCIONAL: si no existe se usa URL_POR_OMISION.
+#
+#  Diagnostico: pestaña Actions > Run workflow. El paso de descarga
+#  imprime el codigo HTTP y el tamaño, y si algo falla la corrida
+#  termina en verde con un aviso, sin borrar los datos publicados.
+#
+#  Sobre los dos archivos de datos:
+#    fallback.csv   padron completo, ventana movil de 7 cortes.
+#    historico.csv  promedios diarios por ambito y producto (120 cortes).
+#    reporte_mercado.csv  metricas estilo Profeco.
+# ---------------------------------------------------------------
