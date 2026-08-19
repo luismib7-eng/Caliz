@@ -18,9 +18,8 @@ permissions:
 
 env:
   # Endpoint de datos de la Comision Nacional de Energia.
-  # Se puede sobrescribir en Settings > Secrets and variables > Actions > Variables
-  # con la variable URL_XML, o al lanzarlo a mano con el campo de arriba.
-    URL_POR_OMISION: "https://publicacionexterna.azurewebsites.net/publicaciones/prices"
+  # OJO: la ruta va SIN acentos -> /publicaciones/prices
+  URL_POR_OMISION: "https://publicacionexterna.azurewebsites.net/publicaciones/prices"
 
 jobs:
   actualizar:
@@ -38,13 +37,12 @@ jobs:
         id: descarga
         run: |
           URL="${{ github.event.inputs.url_xml }}"
-          [ -z "$URL" ] && URL="${{ vars.URL_XML }}"
-          [ -z "$URL" ] && URL="$URL_POR_OMISION"
+          if [ -z "$URL" ]; then URL="${{ vars.URL_XML }}"; fi
+          if [ -z "$URL" ]; then URL="$URL_POR_OMISION"; fi
           echo "Origen: $URL"
 
-          # -w imprime el diagnostico aunque la descarga falle; sin -f para
-          # poder leer el codigo HTTP en lugar de morir en silencio.
-          CODIGO=$(curl -sSL --retry 3 --retry-all-errors --max-time 120 \
+          # Sin -f para poder leer el codigo HTTP en lugar de morir en silencio.
+          CODIGO=$(curl -sSL --retry 3 --retry-all-errors --max-time 180 \
             -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36" \
             -H "Accept: application/xml,text/xml,*/*" \
             -o precios_del_dia.xml -w "%{http_code}" "$URL" || echo "000")
@@ -52,15 +50,23 @@ jobs:
           BYTES=$(wc -c < precios_del_dia.xml 2>/dev/null || echo 0)
           echo "HTTP $CODIGO · $BYTES bytes"
 
-          # El archivo real pesa ~2.5 MB y empieza con <precios ...>.
-          # Una pagina de error o un reto de WAF pesa unos pocos KB y es HTML.
-          if [ "$CODIGO" != "200" ] || [ "$BYTES" -lt 100000 ] || ! head -c 400 precios_del_dia.xml | grep -qi "<precios"; then
-            echo "::warning::Descarga no valida (HTTP $CODIGO, $BYTES bytes). Primeros bytes:"
-            head -c 300 precios_del_dia.xml || true
-            echo ""
-            echo "omitir=1" >> "$GITHUB_OUTPUT"
-          else
+          # Validacion: codigo 200, tamano razonable y contenido correcto.
+          # La etiqueta se busca en TODO el archivo, no en los primeros bytes:
+          # puede venir con BOM, comentarios o una declaracion XML larga antes
+          # del nodo raiz, y por eso una descarga buena se rechazaba.
+          VALIDO=1
+          if [ "$CODIGO" != "200" ]; then VALIDO=0; fi
+          if [ "$BYTES" -lt 100000 ]; then VALIDO=0; fi
+          if ! grep -qi "<estacion" precios_del_dia.xml; then VALIDO=0; fi
+
+          if [ "$VALIDO" = "1" ]; then
+            echo "Descarga valida."
             echo "omitir=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Descarga no valida (HTTP $CODIGO, $BYTES bytes). El tablero conserva el corte previo."
+            echo "Primeros 200 bytes en hexadecimal (revela BOM o HTML de error):"
+            head -c 200 precios_del_dia.xml | od -c | head -8 || true
+            echo "omitir=1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Convertir, acumular y generar el reporte de mercado
@@ -92,32 +98,15 @@ jobs:
         run: |
           rm -f precios_del_dia.xml
           if [ "${{ steps.descarga.outputs.omitir }}" = "1" ]; then
-            echo "### Sin datos nuevos" >> "$GITHUB_STEP_SUMMARY"
-            echo "El origen no entrego un XML valido en esta corrida." >> "$GITHUB_STEP_SUMMARY"
-            echo "Revisa el paso *Descargar el XML oficial* para ver el codigo HTTP." >> "$GITHUB_STEP_SUMMARY"
-            echo "El tablero sigue sirviendo el ultimo corte publicado." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### Sin datos nuevos"
+              echo "El origen no entrego un XML valido en esta corrida."
+              echo "Revisa el paso *Descargar el XML oficial* para ver el codigo HTTP."
+              echo "El tablero sigue sirviendo el ultimo corte publicado."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### Datos actualizados" >> "$GITHUB_STEP_SUMMARY"
-            echo "Periodos en fallback.csv: $(cut -d, -f1 fallback.csv | tail -n +2 | sort -u | tr '\n' ' ')" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### Datos actualizados"
+              echo "Periodos en fallback.csv: $(cut -d, -f1 fallback.csv | tail -n +2 | sort -u | tr '\n' ' ')"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
-
-# ---------------------------------------------------------------
-#  NOTAS
-#
-#  Ruta obligatoria dentro del repositorio:
-#      .github/workflows/actualizar-datos.yml
-#
-#  Antes de la primera corrida:
-#    Settings > Actions > General > Workflow permissions:
-#       marca "Read and write permissions".
-#    La variable URL_XML es OPCIONAL: si no existe se usa URL_POR_OMISION.
-#
-#  Diagnostico: pestaña Actions > Run workflow. El paso de descarga
-#  imprime el codigo HTTP y el tamaño, y si algo falla la corrida
-#  termina en verde con un aviso, sin borrar los datos publicados.
-#
-#  Sobre los dos archivos de datos:
-#    fallback.csv   padron completo, ventana movil de 7 cortes.
-#    historico.csv  promedios diarios por ambito y producto (120 cortes).
-#    reporte_mercado.csv  metricas estilo Profeco.
-# ---------------------------------------------------------------
