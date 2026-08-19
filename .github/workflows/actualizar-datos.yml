@@ -3,7 +3,10 @@ name: Actualizar precios de combustibles
 "on":
   workflow_dispatch: {}
   schedule:
+    # Diario 13:00 UTC = 07:00 en el centro de Mexico
     - cron: "0 13 * * *"
+    # Lunes 14:00 UTC = 08:00 en el centro de Mexico (corte semanal)
+    - cron: "0 14 * * 1"
 
 permissions:
   contents: write
@@ -23,24 +26,25 @@ jobs:
       - name: Descargar el XML oficial de la CNE
         run: curl -fsSL --retry 3 -o precios_del_dia.xml "${{ vars.URL_XML }}"
 
-      - name: Convertir a CSV y acumular histórico
+      - name: Convertir, acumular y generar el reporte de mercado
         run: |
           python3 xml_a_csv.py precios_del_dia.xml \
                   --catalogo catalogo_estaciones.csv \
                   --salida fallback.csv \
-                  --acumular --conservar 3 \
-                  --historico historico.csv --historico-conservar 120
+                  --acumular --conservar 7 \
+                  --historico historico.csv --historico-conservar 120 \
+                  --reporte reporte_mercado.csv
 
       - name: Publicar si hubo cambios
         run: |
           rm -f precios_del_dia.xml
-          if git diff --quiet -- fallback.csv historico.csv; then
+          if git diff --quiet -- fallback.csv historico.csv reporte_mercado.csv; then
             echo "Sin cambios: la fecha ya estaba cargada."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add fallback.csv historico.csv
+          git add fallback.csv historico.csv reporte_mercado.csv
           git commit -m "Precios $(date -u +%Y-%m-%d)"
           git push
 
@@ -60,10 +64,12 @@ jobs:
 #  El horario 13:00 UTC equivale a las 07:00 del centro de Mexico.
 #
 #  Sobre los dos archivos de datos:
-#    fallback.csv   padron completo. --conservar 3 mantiene solo los ultimos
-#                   tres cortes: son ~13,800 filas por dia (750 KB), asi que
-#                   guardar 60 dias completos serian ~45 MB, demasiado para
-#                   que el navegador los cargue y para el propio repositorio.
+#    fallback.csv   padron completo. --conservar 7 mantiene una semana movil:
+#                   son ~13,800 filas por dia (1.6 MB con razon social), asi
+#                   que 60 cortes completos serian ~95 MB, imposible de cargar
+#                   en el navegador. La memoria larga vive en historico.csv.
+#    reporte_mercado.csv  metricas estilo Profeco: nacional, por marca y por
+#                   region, un renglon por bloque y producto (~35 KB al ano).
 #    historico.csv  promedios diarios por ambito y producto: unos 3 KB por
 #                   corte. Es el que alimenta la grafica de tendencia y el
 #                   delta de las tarjetas KPI, y por eso conserva 120 dias.
