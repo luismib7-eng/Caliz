@@ -53,21 +53,30 @@ self.addEventListener("install", function (e) {
       return Promise.all(CASCARON.map(function (u) {
         return c.add(u).catch(function () { return null; });
       }));
-    }).then(function () { return self.skipWaiting(); })
+    })
+    /* Sin skipWaiting aquí a propósito: el worker nuevo se queda en espera
+       hasta que el usuario acepte el aviso. Si tomara control de inmediato,
+       una pestaña abierta seguiría ejecutando el JS viejo mientras recibe
+       archivos nuevos, que es la forma más silenciosa de romper un tablero. */
   );
 });
 
 self.addEventListener("activate", function (e) {
   e.waitUntil(
     caches.keys().then(function (llaves) {
+      /* Se borra todo lo que no pertenezca a esta versión, incluidas las
+         cachés de datos y mapa que el worker anterior haya alcanzado a
+         crear entre el aviso y la activación. */
       return Promise.all(llaves.map(function (k) {
-        return k.indexOf(VERSION) === 0 ? null : caches.delete(k);
+        return k.indexOf(VERSION + "-") === 0 ? null : caches.delete(k);
       }));
     }).then(function () { return self.clients.claim(); })
   );
 });
 
 self.addEventListener("message", function (e) {
+  // El usuario aceptó: el worker toma control y la página se recarga sola
+  // al recibir controllerchange.
   if (e.data === "aplicar-actualizacion") self.skipWaiting();
 });
 

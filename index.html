@@ -463,23 +463,42 @@
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("sw.js").then(function (reg) {
         /* Aviso de versión nueva: nunca se recarga sin permiso del usuario. */
+        function ofrecer() {
+          var aviso = document.getElementById("swAviso");
+          if (!aviso || !aviso.hidden) return;
+          aviso.hidden = false;
+          aviso.querySelector("button").onclick = function () {
+            this.disabled = true;
+            /* El destinatario se resuelve en el momento del clic. Mandarle el
+               mensaje al worker capturado al registrar puede acabar hablándole
+               al que ya está activo: ahí skipWaiting no hace nada y la
+               actualización se queda esperando para siempre.
+               La recarga la dispara controllerchange, no esta función. */
+            navigator.serviceWorker.getRegistration().then(function (r) {
+              var destino = r && (r.waiting || r.installing);
+              if (destino) destino.postMessage("aplicar-actualizacion");
+              else location.reload();
+            });
+          };
+        }
+
         function vigilar(sw) {
           if (!sw) return;
+          if (sw.state === "installed" && navigator.serviceWorker.controller) { ofrecer(); return; }
           sw.addEventListener("statechange", function () {
-            if (sw.state === "installed" && navigator.serviceWorker.controller) {
-              var aviso = document.getElementById("swAviso");
-              if (aviso) {
-                aviso.hidden = false;
-                aviso.querySelector("button").onclick = function () {
-                  sw.postMessage("aplicar-actualizacion");
-                  location.reload();
-                };
-              }
-            }
+            if (sw.state === "installed" && navigator.serviceWorker.controller) ofrecer();
           });
         }
+
         vigilar(reg.waiting || reg.installing);
         reg.addEventListener("updatefound", function () { vigilar(reg.installing); });
+
+        var recargando = false;
+        navigator.serviceWorker.addEventListener("controllerchange", function () {
+          if (recargando) return;      // Chrome puede emitirlo más de una vez
+          recargando = true;
+          location.reload();
+        });
       }).catch(function () { /* sin soporte */ });
     });
   }

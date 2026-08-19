@@ -786,6 +786,22 @@ Para publicar una versión nueva basta con subir `VERSION` en `sw.js`. Las pesta
 un aviso flotante — *"Hay una versión nueva del tablero"* con un botón — y **nunca se recarga sin
 que el usuario lo autorice**.
 
+El ciclo está probado de extremo a extremo: con `VERSION` en `v1` cargado y la copia en disco subida
+a `v2`, el aviso aparece, el worker nuevo queda en espera, y al aceptar toma control, borra las
+cachés `v1-*` y deja únicamente `v2-cascaron`, `v2-datos` y `v2-mapa`, con el tablero operativo.
+
+Tres detalles del ciclo que cuestan encontrar y quedaron resueltos:
+
+- **`skipWaiting()` no va en `install`.** Si el worker nuevo tomara control de inmediato, una pestaña
+  abierta seguiría ejecutando el JS anterior mientras recibe archivos nuevos: la forma más silenciosa
+  de romper un tablero. Solo se ejecuta cuando llega el mensaje del botón.
+- **El destinatario del mensaje se resuelve al hacer clic**, no al registrar. Capturarlo antes puede
+  acabar hablándole al worker que ya está activo, donde `skipWaiting()` no hace nada y la
+  actualización se queda esperando para siempre. Este fallo estuvo presente y se detectó
+  instrumentando el evento `activate` para comprobar que nunca se disparaba.
+- **La recarga la dispara `controllerchange`**, no el clic. Recargar antes de que el worker nuevo
+  tome el control deja la página con el anterior y el aviso reaparece.
+
 ### Librerías locales
 
 Leaflet, PapaParse y Chart.js dejaron de cargarse desde `cdnjs` y viajan en el repositorio (380 KB en
@@ -803,6 +819,10 @@ vuelve innecesario el `integrity` de SRI: el archivo servido es el que está ver
 | `▲ +0.00` cuando la diferencia era de milésimas | Detectado en pruebas | Menos de medio centavo se lee "Sin cambio" |
 | Fórmula de distancia | Observación externa | Ya era Haversine; se confirmó y se documentó |
 | Coordenadas nulas o `(0,0)` | Observación externa | Ya se descartaban en `coord()`; las estaciones sin coordenada no entran al radio ni al denominador del briefing |
+| El botón de actualizar le hablaba al worker activo, no al que esperaba | Detectado al verificar la observación sobre `skipWaiting` | Corregido: el destinatario se resuelve al hacer clic y la recarga espera a `controllerchange` |
+| `mapaPintando` podía quedar en `true` si algo fallaba a media pintada | Detectado al revisar la bandera del popup | `try/finally`: el mapa nunca queda congelado sin error visible |
+| La pausa del repintado leía `mapa._popup`, API privada de Leaflet | Observación externa | Bandera propia con los eventos públicos `popupopen` y `popupclose` |
+| Briefing sin estaciones: mensaje sin salida | Observación externa | Ahora incluye el botón **Abrir Mis estaciones**, que lleva directo al gestor |
 
 ### Elasticidad sugerida
 

@@ -737,3 +737,6 @@ html[data-theme="dark"] .leaflet-control-attribution a{color:var(--muted)}
 }
 .sw-aviso[hidden]{display:none}
 .sw-aviso .btn{background:#fff;color:var(--brand);border-color:transparent;padding:7px 14px}
+
+/* Llamada a la acción del briefing vacío */
+.briefing__cta{margin-top:12px}

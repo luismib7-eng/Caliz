@@ -1858,7 +1858,7 @@
 
   var mapaEncuadrado = false;
   var mapa = null, capaCompetencia = null, capaPropias = null, capaRadios = null;
-  var mapaListo = false, mapaPintando = false;
+  var mapaListo = false, mapaPintando = false, popupAbierto = false;
 
   function iniciarMapa() {
     if (mapa || typeof L === "undefined" || !$("mapView")) return;
@@ -1888,12 +1888,18 @@
         /* Abrir un popup desplaza el mapa (autoPan) y eso dispara moveend:
            repintar en ese momento borraba el marcador y, con él, el popup
            recién abierto. Mientras haya uno abierto no se repinta. */
-        if (mapa._popup && mapa._popup.isOpen()) return;
+        if (popupAbierto) return;
         pintarMapa(scoped());
       }, 160);
     });
 
+    /* La bandera se lleva con los eventos públicos de Leaflet, no leyendo
+       mapa._popup, y se libera en popupclose junto con el repintado pendiente
+       para que ningún paneo posterior quede congelado. */
+    mapa.on("popupopen", function () { popupAbierto = true; });
+
     mapa.on("popupclose", function () {
+      popupAbierto = false;
       clearTimeout(t);
       t = setTimeout(function () { pintarMapa(scoped()); }, 200);
     });
@@ -1934,7 +1940,17 @@
   function pintarMapa(rows) {
     if (!mapaListo || mapaPintando) return;
     mapaPintando = true;
+    /* try/finally: si algo falla a media pintada, la bandera debe liberarse.
+       Si quedara en true, el mapa dejaría de responder a paneos y zooms para
+       el resto de la sesión, sin error visible. */
+    try {
+      pintarMapaInterno(rows);
+    } finally {
+      mapaPintando = false;
+    }
+  }
 
+  function pintarMapaInterno(rows) {
     var prod = state.product;
     var tope = Number(CFG.MAPA_MAX_PUNTOS || 2500);
     var limites = mapa.getBounds();
@@ -2000,8 +2016,6 @@
       : conCoords.length && !visibles.length
         ? "Ninguna estación de la selección cae en el encuadre. Usa el botón de encuadre o aleja el mapa."
         : "";
-
-    mapaPintando = false;
   }
 
   /* Encuadra las estaciones propias, o la selección, la primera vez. */
@@ -2055,9 +2069,14 @@
       (state.period ? fmtPeriod(state.period) : "todos los periodos");
 
     if (!mias.length) {
-      caja.innerHTML = '<p class="briefing__vacio">Elige tus estaciones con el botón <strong>★ Mis estaciones</strong> ' +
-        "y aquí aparecerá cada mañana tu postura frente a la competencia del radio: cuántos vecinos movieron " +
-        "precio, en qué lugar quedaste y qué ajuste te subiría de posición.</p>";
+      caja.innerHTML = '<div class="briefing__vacio">' +
+        "<p>Aún no tienes estaciones propias seleccionadas. Al elegirlas se activan el briefing y el " +
+        "radar de competencia local: cuántos vecinos de tu radio movieron precio, en qué lugar quedaste " +
+        "y qué ajuste en centavos te subiría de posición.</p>" +
+        '<button class="btn briefing__cta" type="button" id="briefingCta">' +
+        '<span class="btn__icon" aria-hidden="true">★</span> Abrir Mis estaciones</button></div>';
+      var cta = $("briefingCta");
+      if (cta) cta.addEventListener("click", abrirGestor);
       return;
     }
 
