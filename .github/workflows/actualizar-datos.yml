@@ -1,11 +1,11 @@
 name: Actualizar precios de combustibles
 
-"on":
+on:
   workflow_dispatch: {}
   schedule:
-    # Diario 13:00 UTC = 07:00 en el centro de Mexico
+    # Diario 13:00 UTC = 07:00 CDMX
     - cron: "0 13 * * *"
-    # Lunes 14:00 UTC = 08:00 en el centro de Mexico (corte semanal)
+    # Lunes 14:00 UTC = 08:00 CDMX
     - cron: "0 14 * * 1"
 
 permissions:
@@ -17,60 +17,62 @@ jobs:
     steps:
       - name: Clonar el repositorio
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Preparar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Descargar el XML oficial de la CNE
-        run: curl -fsSL --retry 3 -o precios_del_dia.xml "${{ vars.URL_XML }}"
-
-      - name: Convertir, acumular y generar el reporte de mercado
+      - name: Descargar XML oficial de la CNE
+        env:
+          URL_CONFIGURADA: ${{ vars.URL_XML }}
         run: |
+          URL="${URL_CONFIGURADA:-https://www.cne.gob.mx/media/precios/precios.xml}"
+          echo "Descargando desde: $URL"
+          
+          curl -sSL --retry 5 --retry-delay 3 --connect-timeout 20 --max-time 60 \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36" \
+            -H "Accept: application/xml,text/xml,*/*" \
+            -o precios_del_dia.xml "$URL"
+          
+          # Validar que el archivo descargado sea un XML válido y no esté vacío
+          if [ ! -s precios_del_dia.xml ] || ! head -n 5 precios_del_dia.xml | grep -q "<"; then
+            echo "::error::El archivo descargado no es un XML válido o el portal está inaccesible."
+            head -n 20 precios_del_dia.xml
+            exit 1
+          fi
+          echo "XML descargado exitosamente ($(stat -c%s precios_del_dia.xml) bytes)."
+
+      - name: Convertir, acumular y generar reporte
+        run: |
+          GEO_ARGS=""
+          if [ -f "entidades_mx.geojson" ]; then GEO_ARGS="$GEO_ARGS --geojson entidades_mx.geojson"; fi
+          if [ -f "municipios_mx.topojson" ]; then GEO_ARGS="$GEO_ARGS --municipios municipios_mx.topojson"; fi
+          
           python3 xml_a_csv.py precios_del_dia.xml \
                   --catalogo catalogo_estaciones.csv \
                   --salida fallback.csv \
                   --acumular --conservar 7 \
                   --historico historico.csv --historico-conservar 120 \
-                  --reporte reporte_mercado.csv
+                  --reporte reporte_mercado.csv \
+                  $GEO_ARGS
 
-      - name: Publicar si hubo cambios
+      - name: Publicar cambios en el repositorio
         run: |
           rm -f precios_del_dia.xml
-          if git diff --quiet -- fallback.csv historico.csv reporte_mercado.csv; then
+          
+          if git diff --quiet -- fallback.csv historico.csv reporte_mercado.csv catalogo_estaciones.csv; then
             echo "Sin cambios: la fecha ya estaba cargada."
             exit 0
           fi
+          
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add fallback.csv historico.csv reporte_mercado.csv
-          git commit -m "Precios $(date -u +%Y-%m-%d)"
-          git push
-
-# ---------------------------------------------------------------
-#  NOTAS (van al final para que nada estorbe al pegar el archivo)
-#
-#  Ruta obligatoria dentro del repositorio:
-#      .github/workflows/actualizar-datos.yml
-#
-#  Antes de la primera corrida:
-#    1. Settings > Secrets and variables > Actions > Variables
-#       Crea URL_XML con la ruta directa del XML de la CNE.
-#    2. Settings > Actions > General > Workflow permissions:
-#       marca "Read and write permissions".
-#
-#  Prueba manual: pestaña Actions > el flujo > Run workflow.
-#  El horario 13:00 UTC equivale a las 07:00 del centro de Mexico.
-#
-#  Sobre los dos archivos de datos:
-#    fallback.csv   padron completo. --conservar 7 mantiene una semana movil:
-#                   son ~13,800 filas por dia (1.6 MB con razon social), asi
-#                   que 60 cortes completos serian ~95 MB, imposible de cargar
-#                   en el navegador. La memoria larga vive en historico.csv.
-#    reporte_mercado.csv  metricas estilo Profeco: nacional, por marca y por
-#                   region, un renglon por bloque y producto (~35 KB al ano).
-#    historico.csv  promedios diarios por ambito y producto: unos 3 KB por
-#                   corte. Es el que alimenta la grafica de tendencia y el
-#                   delta de las tarjetas KPI, y por eso conserva 120 dias.
-# ---------------------------------------------------------------
+          if [ -f "catalogo_estaciones.csv" ]; then git add catalogo_estaciones.csv; fi
+          
+          git commit -m "Precios actualizados: $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push origin main || git push
