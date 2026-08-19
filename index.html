@@ -18,7 +18,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LB GAS 23">
 <meta name="format-detection" content="telephone=no">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="leaflet.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -445,12 +445,44 @@
   </div>
 </div>
 
+<div class="sw-aviso" id="swAviso" role="status" hidden>
+  <span>Hay una versión nueva del tablero.</span>
+  <button class="btn" type="button">Actualizar ahora</button>
+</div>
+
 <div class="tooltip" id="tooltip" role="status" hidden></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="leaflet.js"></script>
+<script src="papaparse.min.js"></script>
+<script src="chart.umd.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
+<script>
+  /* Service worker: solo assets estáticos, y solo bajo http(s). */
+  if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").then(function (reg) {
+        /* Aviso de versión nueva: nunca se recarga sin permiso del usuario. */
+        function vigilar(sw) {
+          if (!sw) return;
+          sw.addEventListener("statechange", function () {
+            if (sw.state === "installed" && navigator.serviceWorker.controller) {
+              var aviso = document.getElementById("swAviso");
+              if (aviso) {
+                aviso.hidden = false;
+                aviso.querySelector("button").onclick = function () {
+                  sw.postMessage("aplicar-actualizacion");
+                  location.reload();
+                };
+              }
+            }
+          });
+        }
+        vigilar(reg.waiting || reg.installing);
+        reg.addEventListener("updatefound", function () { vigilar(reg.installing); });
+      }).catch(function () { /* sin soporte */ });
+    });
+  }
+</script>
 </body>
 </html>

@@ -89,7 +89,8 @@
 
   function money(n, decimals) {
     if (n === null || n === undefined || !isFinite(n)) return "—";
-    return "$" + n.toFixed(decimals === undefined ? 2 : decimals);
+    var d = decimals === undefined ? 2 : decimals;
+    return (n < 0 ? "−$" : "$") + Math.abs(n).toFixed(d);
   }
 
   function titleCase(s) {
@@ -606,9 +607,15 @@
     return url + (url.indexOf("?") > -1 ? "&" : "?") + "t=" + Date.now();
   }
 
+  var sirvioCache = false;
+
   function fetchText(url) {
     return fetch(bust(url), { cache: "no-store" }).then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status + " al leer " + url);
+      /* El service worker responde con la copia guardada cuando no hay red.
+         La marca por encabezado no sobrevive de forma confiable entre
+         navegadores, así que la señal es el estado de conexión. */
+      if (navigator.onLine === false) sirvioCache = true;
       return r.text();
     });
   }
@@ -672,6 +679,7 @@
     var catalogo = catUrl ? fetchText(catUrl).then(buildCatalogSafe, function () { return null; })
                           : Promise.resolve(null);
 
+    sirvioCache = false;
     catalogo
       .then(function (cat) { return intentar(fuentes, 0, cat, []); })
       .then(function (res) {
@@ -683,7 +691,10 @@
         saveCache(res.rows);
         buildControls();
         render();
-        if (res.src.primary) {
+        if (sirvioCache) {
+          state.origin = res.src.origin + " (copia sin conexión)";
+          setStatus("fallback", "Sin conexión · copia guardada", fmtDateTime(state.updatedAt));
+        } else if (res.src.primary) {
           setStatus("live", res.src.kind === "csv" && res.src.origin === "Google Sheets" ? "En vivo" : "Sincronizado",
                     fmtDateTime(state.updatedAt));
         } else if (fuentes.length > 1) {
@@ -1002,10 +1013,6 @@
 
   var rejilla = null, RADIO_KM = 0;
 
-  function gradosPorKm(lat) {
-    return { lat: 1 / 110.574, lon: 1 / (111.320 * Math.cos(lat * Math.PI / 180) || 1) };
-  }
-
   function distanciaKm(a, b) {
     var R = 6371, p = Math.PI / 180;
     var dLat = (b.lat - a.lat) * p, dLon = (b.lon - a.lon) * p;
@@ -1021,7 +1028,10 @@
     var conCoords = rows.filter(function (r) { return r.lat !== null && r.lon !== null; });
     if (conCoords.length < 2) return;
 
-    // Celdas del tamaño del radio: basta revisar la celda y sus ocho vecinas.
+    /* Celdas de RADIO_KM de alto. En longitud un grado mide menos conforme
+       sube la latitud, así que el ancho real de la celda se calcula por fila
+       al consultar (ver vecinos): con ±1 celda en longitud se perdían
+       competidores del borde oriente y poniente. */
     var paso = RADIO_KM / 110.574;
     var celdas = {};
     conCoords.forEach(function (r) {
@@ -1034,9 +1044,17 @@
   function vecinos(r, prod) {
     if (!rejilla || r.lat === null || r.lon === null) return null;
     var ci = Math.floor(r.lat / rejilla.paso), cj = Math.floor(r.lon / rejilla.paso);
+
+    /* Ancho real de la celda en kilómetros a esta latitud: en Guadalajara una
+       celda de 0.0452° mide 4.7 km de este a oeste, menos que el radio de 5 km,
+       así que hay que abrir la búsqueda en longitud. La distancia final
+       siempre se decide con Haversine. */
+    var kmPorCelda = rejilla.paso * 111.320 * Math.cos(r.lat * Math.PI / 180);
+    var dj = kmPorCelda > 0.001 ? Math.max(1, Math.ceil(RADIO_KM / kmPorCelda)) : 1;
+
     var out = [], i, j, k, lista, x;
     for (i = ci - 1; i <= ci + 1; i++) {
-      for (j = cj - 1; j <= cj + 1; j++) {
+      for (j = cj - dj; j <= cj + dj; j++) {
         lista = rejilla.celdas[i + ":" + j];
         if (!lista) continue;
         for (k = 0; k < lista.length; k++) {
@@ -1161,10 +1179,11 @@
       deltaEl.className = "kpi__delta";
       if (mean !== null && prev !== null) {
         var d = mean - prev;
-        // Sin cambio no lleva clase: classList.add("") lanza excepción.
+        // Menos de medio centavo se lee como "sin cambio", no como "▲ +0.00".
+        if (Math.abs(d) < 0.005) d = 0;
         if (d > 0) deltaEl.classList.add("is-up");
         else if (d < 0) deltaEl.classList.add("is-down");
-        deltaEl.textContent = (d > 0 ? "▲ +" + d.toFixed(2) : d < 0 ? "▼ " + d.toFixed(2) : "Sin cambio") +
+        deltaEl.textContent = (d > 0 ? "▲ +" + d.toFixed(2) : d < 0 ? "▼ −" + Math.abs(d).toFixed(2) : "Sin cambio") +
           " vs. periodo anterior (" + money(prev) + ")";
       } else {
         deltaEl.textContent = "Sin periodo anterior para comparar";
@@ -2423,7 +2442,7 @@
                 delta === 0 ? "sin cambio respecto al precio actual"
                             : (delta > 0 ? "ganas" : "cedes") + " " + Math.abs(delta).toFixed(2) +
                               " por litro vendido frente al precio de hoy",
-                delta > 0 ? "alto" : delta < 0 ? "bajo" : "") +
+                signoDinero(delta)) +
       "</div>" +
       bloqueFinanciero(actual, sim.precio, delta) +
       (uni.ref && uni.ref.alcance !== "municipio" && uni.ref.alcance !== "radio"
@@ -2438,6 +2457,13 @@
 
     /* Impacto en caja. Sin costo por litro no hay utilidad que calcular: se
        reporta el efecto sobre el ingreso y se dice que es ingreso, no margen. */
+    /* En el bloque financiero el color sigue el dinero, no el precio: ganar es
+       verde y perder es rojo. En las tarjetas de posición, en cambio, verde
+       significa estar por debajo del mercado. */
+    function signoDinero(n) {
+      return n > 0 ? "pos" : n < 0 ? "neg" : "";
+    }
+
     function bloqueFinanciero(precioActual, precioSim, delta) {
       var v = sim.volumen;
       if (!v || v <= 0) {
@@ -2456,37 +2482,64 @@
       var utilidadSim = costo !== null ? (precioSim - costo) * volNuevo : null;
       var difUtilidad = costo !== null ? utilidadSim - utilidadHoy : null;
 
+      /* Venta bajo costo: el punto de equilibrio no existe y las proyecciones
+         dejan de tener sentido; se avisa antes de mostrar cualquier número. */
+      var margenSim = costo !== null ? precioSim - costo : null;
+      var alerta = "";
+      if (margenSim !== null && margenSim <= 0) {
+        alerta = '<p class="fin__alerta">' +
+          (margenSim === 0
+            ? "A " + money(precioSim) + " venderías <strong>exactamente al costo</strong>: cada litro deja cero."
+            : "A " + money(precioSim) + " venderías <strong>bajo costo</strong>: pierdes " +
+              money(Math.abs(margenSim)) + " por litro, " + pesos(margenSim * volNuevo) +
+              " al día con el volumen capturado.") +
+          " Ningún aumento de volumen lo compensa: entre más vendas, más pierdes.</p>";
+      }
+
       var equilibrio = null;
       if (costo !== null && delta < 0 && (precioSim - costo) > 0) {
         // Litros extra necesarios para no perder utilidad al bajar el precio.
         equilibrio = Math.ceil(utilidadHoy / (precioSim - costo)) - v;
       }
 
-      var html = '<div class="fin">' +
+      var html = '<div class="fin' + (alerta ? " fin--alerta" : "") + '">' +
         '<p class="fin__titulo">Impacto diario estimado</p>' +
+        alerta +
         '<div class="sim__grid">' +
           tarjeta("Δ por litro", (delta >= 0 ? "+" : "−") + Math.abs(delta).toFixed(2) + " $/L",
                   v.toLocaleString("es-MX") + " L/día" + (extra ? " + " + extra.toLocaleString("es-MX") + " L esperados" : ""),
-                  delta > 0 ? "alto" : delta < 0 ? "bajo" : "") +
+                  signoDinero(delta)) +
           tarjeta("Ingreso diario", pesos(difIngreso),
                   "de " + pesos(ingresoHoy) + " a " + pesos(ingresoSim),
-                  difIngreso > 0 ? "alto" : difIngreso < 0 ? "bajo" : "");
+                  signoDinero(difIngreso));
 
       if (costo !== null) {
         html += tarjeta("Utilidad bruta diaria", pesos(difUtilidad),
-                        "margen unitario " + money(precioSim - costo) + " por litro",
-                        difUtilidad > 0 ? "alto" : difUtilidad < 0 ? "bajo" : "");
+                        margenSim <= 0 ? "margen unitario " + money(margenSim) + " por litro · bajo costo"
+                                       : "margen unitario " + money(margenSim) + " por litro",
+                        margenSim <= 0 ? "neg" : signoDinero(difUtilidad));
         html += tarjeta("Utilidad mensual", pesos(difUtilidad === null ? null : difUtilidad * 30),
                         "proyección a 30 días al mismo ritmo",
-                        difUtilidad > 0 ? "alto" : difUtilidad < 0 ? "bajo" : "");
+                        margenSim <= 0 ? "neg" : signoDinero(difUtilidad));
       } else {
         html += tarjeta("Ingreso mensual", pesos(difIngreso * 30),
                         "proyección a 30 días al mismo ritmo",
-                        difIngreso > 0 ? "alto" : difIngreso < 0 ? "bajo" : "");
+                        signoDinero(difIngreso));
       }
 
       html += "</div>";
 
+      if (delta < 0 && v > 0) {
+        var tasa = Number(CFG.ELASTICIDAD_PCT_POR_10_CENTAVOS || 0);
+        if (tasa > 0) {
+          var sugeridos = Math.round(v * (tasa / 100) * (Math.abs(delta) / 0.10));
+          html += '<p class="fin__nota">Supuesto de elasticidad: <strong>+' + tasa +
+            "% de volumen por cada $0.10 de baja</strong> → " + sugeridos.toLocaleString("es-MX") +
+            " litros extra con este ajuste. " +
+            '<button type="button" class="fin__aplicar" data-litros="' + sugeridos + '">Usar este supuesto</button> ' +
+            "Es una regla general, no una medición de tu plaza: ajústala en config.js cuando tengas tu propio dato.</p>";
+        }
+      }
       if (equilibrio !== null && equilibrio > 0) {
         html += '<p class="fin__nota">Para no perder utilidad bajando ' + Math.abs(delta).toFixed(2) +
                 " $/L necesitas vender <strong>" + equilibrio.toLocaleString("es-MX") +
@@ -2748,6 +2801,15 @@
     });
 
     $("simReset").addEventListener("click", function () { sim.precio = null; calcularSimulacion(); });
+
+    $("simResult").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-litros]");
+      if (!b) return;
+      sim.extra = parseInt(b.getAttribute("data-litros"), 10) || 0;
+      $("simExtra").value = sim.extra;
+      guardarFinanzas();
+      calcularSimulacion();
+    });
 
     [["simVolumen", "volumen"], ["simCosto", "costo"], ["simExtra", "extra"]].forEach(function (par) {
       var campo = $(par[0]);

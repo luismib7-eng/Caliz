@@ -121,6 +121,12 @@ window.APP_CONFIG = {
      Referencias: 3–5 km en zona urbana, 15–25 km en carretera. */
   RADIO_KM: 5,
 
+  /* Supuesto de elasticidad para el simulador: puntos porcentuales de volumen
+     que ganarías por cada $0.10 de baja en el precio. Es una regla general del
+     sector, NO una medición de tu plaza: el simulador lo etiqueta como supuesto
+     y te deja capturar los litros a mano. Usa 0 para ocultar la sugerencia. */
+  ELASTICIDAD_PCT_POR_10_CENTAVOS: 2,
+
   /* Tope de estaciones dibujadas en el mapa por encuadre. Leaflet en modo
      canvas aguanta miles de puntos, pero en teléfonos modestos conviene un
      límite: al acercar el mapa o filtrar por estado, entran todas las de la

@@ -278,7 +278,8 @@ servir desde `/ (root)`— salvo `.github/workflows/`, la única carpeta, y la i
 flujos de Actions.
 
 El tablero interpreta CSV y XML sin dependencias adicionales: el XML se lee con `DOMParser`,
-que ya trae el navegador. Dependencias por CDN: PapaParse 5.4.1 (lectura de CSV), Chart.js 4.4.1 (gráficos) y Google Fonts
+que ya trae el navegador. Las librerías viajan en el repositorio (`leaflet.js`, `leaflet.css`,
+`papaparse.min.js`, `chart.umd.min.js`), no por CDN: PapaParse 5.4.1 (lectura de CSV), Chart.js 4.4.1 (gráficos) y Google Fonts
 (Archivo, IBM Plex Sans, IBM Plex Mono). Sin proceso de compilación: el sitio funciona abriendo
 `index.html` desde un servidor estático.
 
@@ -762,3 +763,50 @@ Safari, con el isotipo de LB GAS 23 como ícono.
 No se incluye *service worker*: sin él no hay modo offline, pero tampoco una capa de caché que se
 quede con una versión vieja del tablero sin avisar. El respaldo local del repositorio ya cubre la
 continuidad de datos.
+
+---
+
+## 15. Resiliencia offline y auditoría de la iteración
+
+### Service worker
+
+`sw.js` aplica una estrategia distinta según el recurso:
+
+| Recurso | Estrategia | Razón |
+|---|---|---|
+| Cascarón (HTML, CSS, JS, librerías, iconos) | Stale-while-revalidate | Arranque instantáneo y actualización en segundo plano |
+| Datos (CSV, XML, GeoJSON) | Network-first con respaldo de caché | Nunca un precio viejo teniendo red; sin red, el último corte |
+| Mosaicos del mapa | Cache-first con tope de 300 piezas | Evita volver a bajar el mapa base y no llena el disco |
+
+Cuando el tablero arranca sin conexión, el indicador dice **"Sin conexión · copia guardada"** en
+lugar de fingir que está sincronizado. Probado: con la red apagada, carga completa en 3.6 segundos
+desde la caché.
+
+Para publicar una versión nueva basta con subir `VERSION` en `sw.js`. Las pestañas abiertas reciben
+un aviso flotante — *"Hay una versión nueva del tablero"* con un botón — y **nunca se recarga sin
+que el usuario lo autorice**.
+
+### Librerías locales
+
+Leaflet, PapaParse y Chart.js dejaron de cargarse desde `cdnjs` y viajan en el repositorio (380 KB en
+total). Elimina la dependencia de una red externa, permite que el service worker las precargue y
+vuelve innecesario el `integrity` de SRI: el archivo servido es el que está versionado en Git.
+
+### Correcciones de esta iteración
+
+| Hallazgo | Origen | Estado |
+|---|---|---|
+| La rejilla espacial perdía competidores del borde este-oeste del radio | Detectado al verificar la observación sobre Haversine | Corregido: el ancho de celda en longitud se calcula por latitud. Contraste contra fuerza bruta sobre 400 estaciones: 0 discrepancias |
+| Venta bajo costo mostraba proyecciones sin advertencia | Observación externa | Alerta explícita antes de cualquier cifra, con la pérdida diaria y la aclaración de que ningún volumen la compensa |
+| Pérdidas pintadas de verde en las tarjetas financieras | Detectado al revisar la captura | En el bloque financiero el color sigue al dinero: ganar verde, perder rojo. En las de posición, verde sigue significando estar por debajo del mercado |
+| `money()` imprimía `$-0.50` | Detectado en la misma revisión | Ahora `−$0.50` |
+| `▲ +0.00` cuando la diferencia era de milésimas | Detectado en pruebas | Menos de medio centavo se lee "Sin cambio" |
+| Fórmula de distancia | Observación externa | Ya era Haversine; se confirmó y se documentó |
+| Coordenadas nulas o `(0,0)` | Observación externa | Ya se descartaban en `coord()`; las estaciones sin coordenada no entran al radio ni al denominador del briefing |
+
+### Elasticidad sugerida
+
+El simulador propone litros extra a partir de un supuesto configurable
+(`ELASTICIDAD_PCT_POR_10_CENTAVOS`, 2% por omisión) con un botón para aplicarlo. Va etiquetado como
+**supuesto del sector, no medición de tu plaza**: el campo manual sigue siendo la vía correcta cuando
+tengas tu propio dato.
