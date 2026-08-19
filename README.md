@@ -185,8 +185,10 @@ publica `fallback.csv` con un commit diario.
    > y vuelve a pegar el contenido completo sin reindentar nada. El archivo trae `"on"` entre
    > comillas justamente para evitar que algunos editores lo interpreten como el valor booleano
    > verdadero en lugar de como el nombre del bloque de disparadores.
-2. **Settings → Secrets and variables → Actions → Variables**: crea `URL_XML` con la ruta vigente
-   del XML de la CNE.
+2. **La variable `URL_XML` es opcional.** El flujo ya trae el endpoint por omisión
+   (`https://publicacionexterna.azurewebsites.net/publicaciones/prices`); crea la variable solo si
+   necesitas apuntar a otro origen. Un flujo que dependía de una variable inexistente fallaba en
+   segundos con `exit code 1`, que es fácil de confundir con un bloqueo de red.
 3. **Settings → Actions → General → Workflow permissions**: marca *Read and write permissions*.
 4. Pruébalo a mano desde la pestaña **Actions → Run workflow**.
 
@@ -830,3 +832,42 @@ El simulador propone litros extra a partir de un supuesto configurable
 (`ELASTICIDAD_PCT_POR_10_CENTAVOS`, 2% por omisión) con un botón para aplicarlo. Va etiquetado como
 **supuesto del sector, no medición de tu plaza**: el campo manual sigue siendo la vía correcta cuando
 tengas tu propio dato.
+
+---
+
+## 16. Si el flujo de GitHub Actions falla
+
+El paso **Descargar el XML oficial** imprime el código HTTP y el tamaño recibido antes de procesar
+nada, y valida tres cosas: que el código sea 200, que pese más de 100 KB y que el contenido empiece
+con `<precios`. Si algo no cuadra, la corrida **termina en verde** con un aviso y sin tocar los datos
+publicados: el tablero sigue sirviendo el último corte bueno.
+
+Lee el resumen de la corrida y ubica el caso:
+
+| Lo que ves | Qué significa | Qué hacer |
+|---|---|---|
+| `HTTP 200 · ~2,500,000 bytes` | Todo bien | Nada |
+| `HTTP 000 · 0 bytes` | No hubo conexión, DNS o tiempo agotado | Reintentar a mano; si se repite varios días, pasar al plan B |
+| `HTTP 403` y unos pocos KB de HTML | Un WAF respondió un reto en vez del archivo | Plan B |
+| `HTTP 404` | Cambió la ruta del endpoint | Confirmar la ruta vigente en el portal y ponerla en la variable `URL_XML` |
+| Falla antes de imprimir nada | Error de permisos o de sintaxis del flujo | Revisar *Workflow permissions* en Settings |
+
+**Plan B (Apps Script).** `AppsScript.gs` hace la misma ingesta desde los servidores de Google, con
+otro rango de direcciones y otra ruta de salida. Si el origen bloquea a GitHub pero no a Google, esa
+vía sigue funcionando sin cambiar el tablero: basta con publicar la hoja como CSV y poner la URL en
+`SHEET_CSV_URL` dentro de `config.js`.
+
+**Plan C (equipo local).** El mismo comando del flujo, corrido desde tu equipo y con `git push`. Es
+la vía más simple si el origen solo acepta direcciones residenciales mexicanas.
+
+```bash
+curl -fsSL -o precios_del_dia.xml "https://publicacionexterna.azurewebsites.net/publicaciones/prices"
+python3 xml_a_csv.py precios_del_dia.xml --catalogo catalogo_estaciones.csv \
+        --salida fallback.csv --acumular --conservar 7 \
+        --historico historico.csv --historico-conservar 120 \
+        --reporte reporte_mercado.csv
+git add fallback.csv historico.csv reporte_mercado.csv && git commit -m "Precios $(date +%F)" && git push
+```
+
+Las tres vías escriben exactamente los mismos archivos, así que puedes cambiar de una a otra sin
+tocar el tablero.
