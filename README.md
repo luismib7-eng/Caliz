@@ -18,15 +18,37 @@ de todas las estaciones del país:
 
 <https://www.cne.gob.mx/ConsultaPrecios/GasolinasyDiesel/GasolinasyDiesel.html>
 
+El servicio publica **dos archivos, con esquemas distintos**:
+
 ```xml
-<precios fecha_generacion="2026-08-17">
-  <estacion permiso="PL/9998/EXP/ES/2015">
-    <producto tipo="regular" precio="24.5"/>
-    <producto tipo="premium" precio="30.5"/>
-    <producto tipo="diesel"  precio="27"/>
-  </estacion>
-</precios>
+<!-- /publicaciones/prices  ·  precios del dia, identificados por place_id -->
+<places>
+  <place place_id="11703">
+    <gas_price type="regular">22.95</gas_price>
+    <gas_price type="premium">27.90</gas_price>
+    <gas_price type="diesel">26.99</gas_price>
+  </place>
+</places>
 ```
+
+```xml
+<!-- /publicaciones/places  ·  catalogo: nombre, permiso CRE y coordenadas -->
+<places>
+  <place place_id="2039">
+    <name>ESTACION HIPODROMO SA DE CV</name>
+    <cre_id>PL/658/EXP/ES/2015</cre_id>
+    <location><x>-116.9214</x><y>32.47641</y></location>
+  </place>
+</places>
+```
+
+**La llave que une ambos es `place_id`, no el permiso CRE.** El archivo de precios no trae
+razon social, ubicacion ni fecha: el catalogo aporta la identidad y la fecha se toma del dia
+de la corrida (o con `--fecha`).
+
+El pipeline tambien acepta un esquema anterior que la Comision llego a publicar,
+`<precios fecha_generacion><estacion permiso><producto tipo precio>`, y detecta cual de los
+dos recibio sin que haya que configurarlo.
 
 El XML trae **permiso y precio, nada más**: no incluye razón social, dirección ni ubicación. Por eso
 el proyecto trabaja con dos piezas separadas:

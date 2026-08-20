@@ -36,6 +36,7 @@ acentos de razones sociales y domicilios se conservan tal cual.
 
 import argparse
 import csv
+import datetime
 import io
 import os
 import re
@@ -57,6 +58,7 @@ CON_MARCADOR = ("Region", "Estado", "Municipio")
 # Encabezados aceptados en el catálogo, sin distinguir mayúsculas ni acentos.
 ALIAS_CATALOGO = {
     "permiso": ["permiso cre", "permisocre", "numero", "num permiso", "permiso", "cre id", "cre_id"],
+    "place_id": ["place id", "place_id", "placeid", "id"],
     "lat": ["lat", "latitud", "latitude", "y"],
     "lon": ["lon", "lng", "longitud", "longitude", "x"],
     "estacion": ["estacion", "razon social", "nombre"],
@@ -151,6 +153,7 @@ def leer_catalogo_xml(ruta):
             continue
 
         registro = {
+            "Place ID": (nodo.get("place_id") or nodo.get("placeId") or "").strip(),
             "Marca": texto_de(nodo, ("marca", "brand", "bandera")),
             "Estacion": texto_de(nodo, ("name", "nombre", "razon_social", "razonsocial", "nombre_comercial")),
             "Direccion": texto_de(nodo, ("address", "direccion", "domicilio", "street", "calle")),
@@ -215,6 +218,7 @@ def leer_catalogo(ruta):
             if not permiso:
                 continue
             registro = {
+                "Place ID": val(fila, "place_id"),
                 "Lat": val(fila, "lat"),
                 "Lon": val(fila, "lon"),
                 "Marca": val(fila, "marca"),
@@ -250,17 +254,52 @@ def leer_xml(ruta):
         sys.exit("El XML no se pudo interpretar (%s). Primeros bytes: %r" % (e, datos[:80]))
 
 
-def convertir(ruta_xml, catalogo, minimo, maximo):
+def indexar_por_place_id(catalogo):
+    """place_id -> permiso CRE, para cruzar el XML de precios con el catálogo."""
+    idx = {}
+    for clave, reg in catalogo.items():
+        pid = str(reg.get("Place ID") or "").strip()
+        if pid and pid not in idx and PERMISO_RE.match(clave or ""):
+            idx[pid] = clave
+    return idx
+
+
+def convertir(ruta_xml, catalogo, minimo, maximo, fecha_forzada=""):
+    """
+    Acepta los dos esquemas que ha publicado la Comisión:
+
+      A) <precios fecha_generacion="AAAA-MM-DD">
+           <estacion permiso="PL/.../EXP/ES/AAAA">
+             <producto tipo="regular" precio="22.95"/>
+
+      B) <places>                          (el que sirve el endpoint vigente)
+           <place place_id="11703">
+             <gas_price type="regular">22.95</gas_price>
+
+    El esquema B identifica la estación por place_id, no por permiso: el
+    catálogo de estaciones aporta la equivalencia. Tampoco trae fecha, así
+    que se toma la del día (o la que se indique con --fecha).
+    """
     if not os.path.exists(ruta_xml):
         sys.exit("No se encontró el XML: %s" % ruta_xml)
 
     raiz = leer_xml(ruta_xml)
     fecha = raiz.get("fecha_generacion", "")
+    if not fecha:
+        fecha = fecha_forzada or datetime.datetime.utcnow().strftime("%Y-%m-%d")
 
     registros, orden = {}, []
-    st = {"estaciones": 0, "duplicados": 0, "descartados": 0, "sin_catalogo": 0}
+    st = {"estaciones": 0, "duplicados": 0, "descartados": 0, "sin_catalogo": 0,
+          "sin_equivalencia": 0, "esquema": "precios/estacion"}
 
-    for est in raiz.findall("estacion"):
+    nodos = raiz.findall("estacion")
+    if not nodos:
+        nodos = raiz.findall("place")
+        if nodos:
+            st["esquema"] = "places/place (place_id)"
+            return convertir_places(nodos, catalogo, minimo, maximo, fecha, st)
+
+    for est in nodos:
         permiso = " ".join(str(est.get("permiso") or "").split())
         if not permiso:
             continue
@@ -331,6 +370,77 @@ def leer_existente(ruta):
         if v and v not in fechas:
             fechas.append(v)
     return filas, sorted(fechas)
+
+
+def convertir_places(nodos, catalogo, minimo, maximo, fecha, st):
+    """Esquema B: <place place_id><gas_price type>precio</gas_price>."""
+    equivalencia = indexar_por_place_id(catalogo)
+    registros, orden = {}, []
+
+    for place in nodos:
+        pid = (place.get("place_id") or "").strip()
+        if not pid:
+            continue
+        st["estaciones"] += 1
+
+        permiso = equivalencia.get(pid, "")
+        if not permiso:
+            # Sin equivalencia el registro no puede identificarse ni ubicarse:
+            # se conserva con un identificador propio para no perder el precio.
+            st["sin_equivalencia"] += 1
+            permiso = "PLACE/" + pid
+
+        precios = {}
+        for gp in place.findall("gas_price"):
+            columna = PRODUCTOS.get((gp.get("type") or "").strip().lower())
+            if not columna:
+                continue
+            try:
+                valor = float((gp.text or "").strip())
+            except (TypeError, ValueError):
+                continue
+            if valor < minimo or valor > maximo:
+                st["descartados"] += 1
+                continue
+            precios[columna] = "%.2f" % valor
+
+        clave = clave_permiso(permiso)
+        if clave in registros:
+            st["duplicados"] += 1
+            for columna, v in precios.items():
+                if not registros[clave][columna]:
+                    registros[clave][columna] = v
+            continue
+
+        info = catalogo.get("".join(permiso.split()).upper()) or catalogo.get(clave) or {}
+        if not info:
+            st["sin_catalogo"] += 1
+
+        fila = {
+            "Fecha": fecha,
+            "Region": info.get("Region", ""),
+            "Estado": info.get("Estado", ""),
+            "Municipio": info.get("Municipio", ""),
+            "Marca": info.get("Marca", ""),
+            "Estacion": info.get("Estacion", ""),
+            "Permiso CRE": permiso,
+            "Direccion": info.get("Direccion", ""),
+            "Regular": precios.get("Regular", ""),
+            "Premium": precios.get("Premium", ""),
+            "Diesel": precios.get("Diesel", ""),
+        }
+        for campo in CON_MARCADOR:
+            if not fila[campo]:
+                fila[campo] = SIN_DATO
+
+        registros[clave] = fila
+        orden.append(clave)
+
+    filas = [registros[k] for k in orden]
+    st["filas"] = len(filas)
+    st["con_catalogo"] = st["filas"] - st["sin_catalogo"]
+    st["fecha"] = fecha
+    return filas, st
 
 
 def escribir(filas, salida, acumular, conservar, fecha):
@@ -430,7 +540,7 @@ def escribir_historico(filas, ruta, fecha, conservar):
     return {"accion": "actualizado", "periodos": len(fechas), "filas": len(todas)}
 
 
-COLUMNAS_CATALOGO = ["Permiso CRE", "Marca", "Estacion", "Direccion",
+COLUMNAS_CATALOGO = ["Permiso CRE", "Place ID", "Marca", "Estacion", "Direccion",
                      "Municipio", "Estado", "Region", "Lat", "Lon"]
 
 # Las 8 regiones de la Política Pública de Almacenamiento Mínimo de Petrolíferos,
@@ -678,6 +788,7 @@ def exportar_catalogo(catalogo, ruta):
         vistos.add(canon)
         filas.append({
             "Permiso CRE": clave,
+            "Place ID": reg.get("Place ID", ""),
             "Marca": reg.get("Marca", ""),
             "Estacion": reg.get("Estacion", ""),
             "Direccion": reg.get("Direccion", ""),
@@ -814,6 +925,8 @@ def main():
                     help="GeoJSON de las 32 entidades para deducir Estado de las coordenadas del catálogo")
     ap.add_argument("--municipios", default="",
                     help="TopoJSON de municipios para deducir Municipio de las coordenadas del catálogo")
+    ap.add_argument("--fecha", default="",
+                    help="Fecha del corte AAAA-MM-DD cuando el XML no la trae (por omisión, la de hoy en UTC)")
     ap.add_argument("--min", type=float, default=15.0, help="Precio mínimo válido (por omisión 15.00)")
     ap.add_argument("--max", type=float, default=45.0, help="Precio máximo válido (por omisión 45.00)")
     args = ap.parse_args()
@@ -834,14 +947,17 @@ def main():
         print("Catálogo exportado:       %s (%d permisos · %d con nombre · %d con municipio · %d con coordenadas)"
               % (args.exportar_catalogo, ce["filas"], ce["nombre"], ce["municipio"], ce["coords"]))
 
-    filas, st = convertir(args.xml, catalogo, args.min, args.max)
+    filas, st = convertir(args.xml, catalogo, args.min, args.max, args.fecha)
     if not filas:
         sys.exit("El XML no produjo filas.")
     res = escribir(filas, args.salida, args.acumular, args.conservar, st["fecha"])
     hist = escribir_historico(filas, args.historico, st["fecha"], args.historico_conservar)
 
-    print("Fecha de generación:      %s" % st["fecha"])
+    print("Esquema detectado:        %s" % st.get("esquema", "precios/estacion"))
+    print("Fecha del corte:          %s" % st["fecha"])
     print("Estaciones en el XML:     %d" % st["estaciones"])
+    if st.get("sin_equivalencia"):
+        print("Sin equivalencia:         %d place_id que no están en el catálogo" % st["sin_equivalencia"])
     print("Filas escritas:           %d" % st["filas"])
     print("Permisos repetidos:       %d (fusionados con el primer registro)" % st["duplicados"])
     print("Precios fuera de rango:   %d (descartados, límites %.2f-%.2f)" % (st["descartados"], args.min, args.max))
