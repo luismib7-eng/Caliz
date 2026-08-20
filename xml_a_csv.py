@@ -286,7 +286,7 @@ def convertir(ruta_xml, catalogo, minimo, maximo, fecha_forzada=""):
     raiz = leer_xml(ruta_xml)
     fecha = raiz.get("fecha_generacion", "")
     if not fecha:
-        fecha = fecha_forzada or datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        fecha = fecha_forzada or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
     registros, orden = {}, []
     st = {"estaciones": 0, "duplicados": 0, "descartados": 0, "sin_catalogo": 0,
@@ -375,6 +375,18 @@ def leer_existente(ruta):
 def convertir_places(nodos, catalogo, minimo, maximo, fecha, st):
     """Esquema B: <place place_id><gas_price type>precio</gas_price>."""
     equivalencia = indexar_por_place_id(catalogo)
+
+    # Sin equivalencias el resultado seria un padron de precios anonimos, sin
+    # razon social ni ubicacion: es preferible detenerse y decir por que.
+    if not equivalencia:
+        sys.exit(
+            "El catálogo no trae la columna 'Place ID', que es la llave con la que el XML de\n"
+            "precios identifica cada estación. Estás usando un catalogo_estaciones.csv anterior.\n"
+            "Regenéralo con:\n"
+            "  curl -fsSL -o places.xml \"https://publicacionexterna.azurewebsites.net/publicaciones/places\"\n"
+            "  python3 xml_a_csv.py places.xml --catalogo places.xml \\\n"
+            "          --exportar-catalogo catalogo_estaciones.csv --salida /dev/null")
+
     registros, orden = {}, []
 
     for place in nodos:
