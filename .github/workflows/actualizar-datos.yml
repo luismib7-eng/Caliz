@@ -89,9 +89,15 @@ jobs:
           print("raiz: <%s> atributos=%s" % (raiz.tag, dict(raiz.attrib)))
           print("hijos: %d · etiquetas: %s" % (len(hijos), sorted({h.tag for h in hijos[:50]})))
 
-          if raiz.tag != "precios" or not hijos:
-              print("resultado: XML_DE_OTRA_COSA"); sys.exit(0)
-          print("resultado: OK")
+          # Esquema A: <precios><estacion permiso><producto tipo precio>
+          # Esquema B: <places><place place_id><gas_price type>   (el vigente)
+          if hijos and hijos[0].tag == "estacion":
+              print("esquema: precios/estacion"); print("resultado: OK"); sys.exit(0)
+          if hijos and hijos[0].tag == "place" and hijos[0].find("gas_price") is not None:
+              print("esquema: places/place con gas_price"); print("resultado: OK"); sys.exit(0)
+          if hijos and hijos[0].tag == "place":
+              print("resultado: ES_EL_CATALOGO_NO_LOS_PRECIOS"); sys.exit(0)
+          print("resultado: XML_DE_OTRA_COSA"); sys.exit(0)
           PY
 
           cat diagnostico.txt
@@ -106,6 +112,7 @@ jobs:
         run: |
           python3 xml_a_csv.py precios_del_dia.xml \
                   --catalogo catalogo_estaciones.csv \
+                  --fecha "$(date -u +%Y-%m-%d)" \
                   --salida fallback.csv \
                   --acumular --conservar 7 \
                   --historico historico.csv --historico-conservar 120 \
