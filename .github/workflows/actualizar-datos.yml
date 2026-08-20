@@ -121,7 +121,8 @@ jobs:
       - name: Publicar si hubo cambios
         if: steps.validacion.outputs.omitir == '0'
         run: |
-          rm -f precios_del_dia.xml diagnostico.txt
+          # No se borra diagnostico.txt aqui: el paso del resumen lo publica.
+          rm -f precios_del_dia.xml
           if git diff --quiet -- fallback.csv historico.csv reporte_mercado.csv; then
             echo "Sin cambios: la fecha ya estaba cargada."
             exit 0
@@ -159,25 +160,3 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           rm -f precios_del_dia.xml diagnostico.txt
-
-# ---------------------------------------------------------------
-#  NOTAS
-#
-#  Ruta obligatoria dentro del repositorio:
-#      .github/workflows/actualizar-datos.yml
-#
-#  Antes de la primera corrida:
-#    Settings > Actions > General > Workflow permissions:
-#       marca "Read and write permissions".
-#    La variable URL_XML es OPCIONAL: si no existe se usa URL_POR_OMISION.
-#    Si la creaste, revisa que la ruta NO lleve acentos.
-#
-#  El resumen de cada corrida muestra el codigo HTTP, los bytes, la URL
-#  que se uso y los primeros bytes del archivo recibido. Con eso se
-#  identifica cualquier fallo sin abrir el log.
-#
-#  Archivos que mantiene este flujo:
-#    fallback.csv         padron completo, ventana movil de 7 cortes.
-#    historico.csv        promedios diarios por ambito y producto (120 cortes).
-#    reporte_mercado.csv  metricas estilo Profeco.
-# ---------------------------------------------------------------
